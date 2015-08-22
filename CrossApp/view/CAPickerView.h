@@ -1,4 +1,4 @@
-﻿//
+//
 //  CAPickerView.h
 //  CrossApp
 //
@@ -10,9 +10,6 @@
 #define __CrossApp__CAPickerView__
 
 #include "CATableView.h"
-#include "actions/CCActionInstant.h"
-#include "actions/CCActionInterval.h"
-#include "actions/CCActionCamera.h"
 
 NS_CC_BEGIN
 
@@ -44,7 +41,7 @@ public:
     virtual CAView* viewForSelect(CAPickerView* pickerView, unsigned int component, const CCSize& size) {return NULL;}
 };
 
-class CC_DLL CAPickerView : public CAView, public CATableViewDataSource , public CATableViewDelegate
+class CC_DLL CAPickerView : public CAView, public CATableViewDataSource , public CATableViewDelegate, public CAScrollViewDelegate
 {
 public:
     static CAPickerView* create();
@@ -79,7 +76,7 @@ public:
     
     // Reloading whole view or single component
     virtual void reloadAllComponents();
-    virtual void reloadComponent(unsigned int component, bool bReload = true);
+    virtual void reloadComponent(unsigned int row,unsigned int component, bool bReload = true);
     
     // selection. in this case, it means showing the appropriate row in the middle
     // animated: scrolls the specified row to center. default is false
@@ -107,7 +104,7 @@ protected:
     virtual CATableViewCell* tableCellAtIndex(CATableView* table, const CCSize& cellSize, unsigned int section, unsigned int row);
     virtual unsigned int numberOfRowsInSection(CATableView *table, unsigned int section);
     virtual unsigned int tableViewHeightForRowAtIndexPath(CATableView* table, unsigned int section, unsigned int row);
-    
+    virtual void scrollViewDidEndDragging(CAScrollView* view);
 private:
 
 	CAVector<CATableView*> m_tableViews;

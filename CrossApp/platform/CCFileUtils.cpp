@@ -543,7 +543,7 @@ std::string CCFileUtils::getFileString(const char* pszFilePath)
     std::string data;
     
     unsigned long pSize = 0;
-    unsigned char* pData = this->getFileData(pszFilePath, "r", &pSize);
+    unsigned char* pData = this->getFileData(pszFilePath, "rb", &pSize);
     
     data.resize(pSize, sizeof(char));
     for (int i=0; i<data.size(); i++)
@@ -834,7 +834,11 @@ bool CCFileUtils::createDirectory(const char *path)
 #if (CC_TARGET_PLATFORM != CC_PLATFORM_WIN32)
     DIR *dir=NULL;
     dir = opendir(path);
-    if (dir) return false;
+    if (dir)
+    {
+        closedir(dir);
+        return false;
+    }
     
     mode_t processMask = umask(0);
     int ret = mkdir(path, S_IRWXU | S_IRWXG | S_IRWXO);

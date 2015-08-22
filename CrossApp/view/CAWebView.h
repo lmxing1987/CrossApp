@@ -13,6 +13,7 @@
 #include "platform/CCFileUtils.h"
 #include "CAView.h"
 #include "CAImageView.h"
+#include "CAActivityIndicatorView.h"
 
 
 NS_CC_BEGIN
@@ -108,7 +109,9 @@ public:
     /**
     * evaluates JavaScript in the context of the currently displayed page
     */
-    void evaluateJS(const std::string &js);
+    std::string evaluateJS(const std::string &js);
+
+	std::string getHTMLSource();
 
     /**
     * Set WebView should support zooming. The default value is false.
@@ -126,6 +129,13 @@ public:
 	virtual void setVisible(bool visible);
     
 	CC_SYNTHESIZE(CAWebViewDelegate*, m_pWebViewDelegate, WebViewDelegate);
+
+	void setActivityView(CAActivityIndicatorView* loadingView);
+	void showLoadingActivity(bool show);
+   
+protected:
+    
+    virtual void setContentSize(const CCSize &contentSize);
     
 private:
     
@@ -134,6 +144,8 @@ private:
 	bool m_bHideNativeWeCmd;
     
     CAImageView* m_pImageView;
+    
+    CAActivityIndicatorView* m_pLoadingView;
     
     CCPoint m_obLastPoint;
     

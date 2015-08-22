@@ -10,31 +10,219 @@
 #include "CAImageCache.h"
 #include "ccConfig.h"
 #include "ccMacros.h"
-#include "platform/platform.h"
 #include "CCGL.h"
 #include "CCStdC.h"
 #include "support/ccUtils.h"
 #include "support/zip_support/ZipUtils.h"
-#include "platform/CCPlatformMacros.h"
+#include "platform/platform.h"
 #include "platform/CCPlatformConfig.h"
 #include "platform/CCFileUtils.h"
+#include "platform/CAFTFontCache.h"
 #include "basics/CAApplication.h"
 #include "shaders/CAGLProgram.h"
 #include "shaders/ccGLStateCache.h"
 #include "shaders/CAShaderCache.h"
 #include <ctype.h>
 #include <cctype>
-#include "platform/CAFTFontCache.h"
 #include "support/image_support/TGAlib.h"
 #include "png.h"
 #include "jpeglib.h"
 #include "tiffio.h"
 #include "decode.h"
 #include "etc1.h"
+#include "images/gif_lib/gif_lib.h"
+#include "images/gif_lib/gif_hash.h"
+#include "images/gif_lib/gif_lib_private.h"
+#include "images/gif_lib/GifUtils.h"
 
 
 NS_CC_BEGIN
 
+
+CAImage* CAImage::scaleToNewImageWithImage(CAImage* image, const CCSize& size)
+{
+    CCRect rect;
+    rect.size = size;
+    CARenderImage* renderImage = CARenderImage::create(size.width, size.height);
+    renderImage->begin();
+    
+    GLfloat    coordinates[] =
+    {
+        0.0f,                   0.0f,
+        image->getMaxS(),       0.0f,
+        0.0f,                   image->getMaxT(),
+        image->getMaxS(),       image->getMaxT()
+    };
+    
+    GLfloat    vertices[] =
+    {
+        rect.origin.x,                     rect.origin.y,                      /*0.0f,*/
+        rect.origin.x + rect.size.width,   rect.origin.y,                      /*0.0f,*/
+        rect.origin.x,                     rect.origin.y + rect.size.height,   /*0.0f,*/
+        rect.origin.x + rect.size.width,   rect.origin.y + rect.size.height,   /*0.0f*/
+    };
+    
+    ccGLEnableVertexAttribs( kCCVertexAttribFlag_Position | kCCVertexAttribFlag_TexCoords );
+    
+    image->getShaderProgram()->use();
+    image->getShaderProgram()->setUniformsForBuiltins();
+    
+    ccGLBindTexture2D( image->getName() );
+    
+#ifdef EMSCRIPTEN
+    setGLBufferData(vertices, 8 * sizeof(GLfloat), 0);
+    glVertexAttribPointer(kCCVertexAttrib_Position, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    
+    setGLBufferData(coordinates, 8 * sizeof(GLfloat), 1);
+    glVertexAttribPointer(kCCVertexAttrib_TexCoords, 2, GL_FLOAT, GL_FALSE, 0, 0);
+#else
+    glVertexAttribPointer(kCCVertexAttrib_Position, 2, GL_FLOAT, GL_FALSE, 0, vertices);
+    glVertexAttribPointer(kCCVertexAttrib_TexCoords, 2, GL_FLOAT, GL_FALSE, 0, coordinates);
+#endif // EMSCRIPTEN
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    
+    renderImage->end();
+    return renderImage->getImageView()->getImage();
+}
+
+CAImage* CAImage::scaleToNewImageWithImage(CAImage* image, float scaleX, float scaleY)
+{
+    CCSize size;
+    size.width = image->getContentSize().width * scaleX;
+    size.height = image->getContentSize().height * scaleY;
+    return scaleToNewImageWithImage(image, size);
+}
+
+CAImage* generateMipmapsWithImageRGB(CAImage* image)
+
+{
+
+    int	new_w = image->getPixelsWide() >> 1;
+    int	new_h = image->getPixelsHigh() >> 1;
+    if (new_w < 1) new_w = 1;
+    if (new_h < 1) new_h = 1;
+    
+    int	new_pitch = new_w * 3;
+    
+    new_pitch = (new_pitch + 3) & ~3;
+    
+    //    if (new_w * 2 != m_uPixelsWide || new_h * 2 != m_uPixelsHigh)
+    //    {
+    //    }
+    //    else
+    {
+        CAImage* newImage = new CAImage();
+        unsigned char* data = new unsigned char[new_pitch * new_h];
+        // Resample.  Simple average 2x2 --> 1, in-place.
+        int	pitch = image->getPixelsWide() * 3;
+        
+        for (int j = 0; j < new_h; j++) {
+            unsigned char*	out = ((unsigned char*)data) + j * new_pitch;
+            unsigned char*	in = ((unsigned char*)image->getData()) + (j << 1) * pitch;
+            for (int i = 0; i < new_w; i++) {
+                int	r, g, b;
+                r = (*(in + 0) + *(in + 3) + *(in + 0 + pitch) + *(in + 3 + pitch));
+                g = (*(in + 1) + *(in + 4) + *(in + 1 + pitch) + *(in + 4 + pitch));
+                b = (*(in + 2) + *(in + 5) + *(in + 2 + pitch) + *(in + 5 + pitch));
+                *(out + 0) = r >> 2;
+                *(out + 1) = g >> 2;
+                *(out + 2) = b >> 2;
+                out += 3;
+                in += 6;
+            }
+        }
+        
+        newImage->initWithRawData(data, CAImage::PixelFormat_RGB888, new_w, new_h);
+        newImage->autorelease();
+        delete[] data;
+        
+        return newImage;
+    }
+    return 0;
+}
+
+CAImage* generateMipmapsWithImageRGBA(CAImage* image)
+{
+    int	new_w = image->getPixelsWide() >> 1;
+    int	new_h = image->getPixelsHigh() >> 1;
+    if (new_w < 1) new_w = 1;
+    if (new_h < 1) new_h = 1;
+    
+    int	new_pitch = new_w * 4;
+    
+    //    if (new_w * 2 != m_uPixelsWide || new_h * 2 != m_uPixelsHigh)
+    //    {
+    //    }
+    //    else
+    {
+        CAImage* newImage = new CAImage();
+        unsigned char* data = new unsigned char[new_pitch * new_h];
+        
+        // Resample.  Simple average 2x2 --> 1, in-place.
+        int	pitch = image->getPixelsWide() * 4;
+        for (int j = 0; j < new_h; j++) {
+            unsigned char*	out = ((unsigned char*)data) + j * new_pitch;
+            unsigned char*	in = ((unsigned char*)image->getData()) + (j << 1) * pitch;
+            for (int i = 0; i < new_w; i++) {
+                int	r, g, b, a;
+                r = (*(in + 0) + *(in + 4) + *(in + 0 + pitch) + *(in + 4 + pitch));
+                g = (*(in + 1) + *(in + 5) + *(in + 1 + pitch) + *(in + 5 + pitch));
+                b = (*(in + 2) + *(in + 6) + *(in + 2 + pitch) + *(in + 6 + pitch));
+                a = (*(in + 3) + *(in + 7) + *(in + 3 + pitch) + *(in + 7 + pitch));
+                *(out + 0) = r >> 2;
+                *(out + 1) = g >> 2;
+                *(out + 2) = b >> 2;
+                *(out + 3) = a >> 2;
+                out += 4;
+                in += 8;
+            }
+        }
+        newImage->initWithRawData(data, CAImage::PixelFormat_RGBA8888, new_w, new_h);
+        newImage->autorelease();
+        delete[] data;
+        
+        return newImage;
+    }
+
+    return 0;
+}
+
+
+CAImage* CAImage::generateMipmapsWithImage(CAImage* image)
+{
+    if (CCPoint(image->getContentSize()).getLength() < 2895)
+    {
+        CAImage* newImage = new CAImage();
+        newImage->initWithRawData(image->getData(), image->getPixelFormat(), image->getPixelsWide(), image->getPixelsHigh());
+        newImage->autorelease();
+        return newImage;
+    }
+    
+    if (image->getPixelFormat() == CAImage::PixelFormat_RGB888)
+    {
+        return generateMipmapsWithImageRGB(image);
+    }
+    else if (image->getPixelFormat() == CAImage::PixelFormat_RGBA8888)
+    {
+        return generateMipmapsWithImageRGBA(image);
+    }
+    
+    return NULL;
+}
+
+extern "C"
+{
+    
+    size_t fwrite$UNIX2003( const void *a, size_t b, size_t c, FILE *d )
+    {
+        return fwrite(a, b, c, d);
+    }
+    
+    char* strerror$UNIX2003( int errnum )
+    {
+        return strerror(errnum);
+    }
+}
 
 namespace
 {
@@ -227,6 +415,7 @@ namespace
         CC_UNUSED_PARAM(size);
     }
 }
+
 
 // IIIIIIII -> RRRRRRRRGGGGGGGGGBBBBBBBB
 void CAImage::convertI8ToRGB888(const unsigned char* data, unsigned long dataLen, unsigned char* outData)
@@ -771,22 +960,29 @@ CAImage::PixelFormat CAImage::convertDataToFormat(const unsigned char* data, uns
         case CAImage::PixelFormat_RGBA8888:
             return convertRGBA8888ToFormat(data, dataLen, format, outData, outDataLen);
         default:
-            CCLOG("unsupport convert for format %d to format %d", originFormat, format);
             *outData = (unsigned char*)data;
             *outDataLen = dataLen;
             return originFormat;
     }
 }
 
+#include "cocoa/CCArray.h"
 
-
-//CLASS IMPLEMENTATIONS:
-
-// If the image has alpha, you can create RGBA8 (32-bit) or RGBA4 (16-bit) or RGB5A1 (16-bit)
-// Default is: RGBA8888 (32-bit textures)
-static CAImage::PixelFormat g_defaultAlphaPixelFormat = CAImage::PixelFormat_Default;
+static std::set<CAImage*> s_pImages;
 
 static CAImage* cc_white_image = NULL;
+
+static const unsigned char* s_pData = NULL;
+static int  s_pDataMark = 0;
+
+static int DecodeCallBackProc(GifFileType* gif, GifByteType* bytes, int size)
+{
+    for(int i=0; i<size; i++, s_pDataMark++)
+    {
+        bytes[i] = s_pData[s_pDataMark];
+    }
+    return size;
+}
 
 CAImage::CAImage()
 : m_uPixelsWide(0)
@@ -799,26 +995,31 @@ CAImage::CAImage()
 , m_pShaderProgram(NULL)
 , m_bMonochrome(false)
 , m_pData(NULL)
-, m_nDataLenght(0)
+, m_uDataLenght(0)
+, m_pImageData(NULL)
+, m_uImageDataLenght(0)
 , m_nBitsPerComponent(0)
 , m_bPremultiplied(false)
+, m_pGIF(NULL)
+, m_iGIFIndex(0)
+, m_bTextImage(false)
 {
-    
+    s_pImages.insert(this);
 }
 
 CAImage::~CAImage()
 {
     CCLOGINFO("CrossApp: deallocing CAImage %u.", m_uName);
     CC_SAFE_RELEASE(m_pShaderProgram);
+    
     if(m_uName)
     {
         ccGLDeleteTexture(m_uName);
     }
-    
-    if (m_pData)
-    {
-        free(m_pData);
-    }
+
+    releaseData(&m_pData);
+
+    s_pImages.erase(this);
 }
 
 CAImage*  CAImage::createWithString(const char *text, const char *fontName, float fontSize, const CCSize& dimensions, CATextAlignment hAlignment,
@@ -849,7 +1050,211 @@ int CAImage::getStringHeight(const char* pFontName, unsigned long nSize, const s
 
 CAImage* CAImage::create(const std::string& file)
 {
-	return CAImageCache::sharedImageCache()->addImage(file);
+    return CAImageCache::sharedImageCache()->addImage(file);
+}
+
+unsigned int CAImage::getGifImageIndex()
+{
+    return m_iGIFIndex;
+}
+
+unsigned int CAImage::getGifImageCounts()
+{
+    return m_pGIF ? m_pGIF->ImageCount : 0;
+}
+
+void CAImage::updateGifImageWithIndex(unsigned int index)
+{
+    this->setGifImageWithIndex(index);
+    this->convertToRawData();
+    this->repremultipliedImageData();
+}
+
+void CAImage::copyLine(unsigned char* dst, const unsigned char* src, const ColorMapObject* cmap, int transparent, int width)
+{
+    for (; width > 0; width--, src++, dst+=4)
+    {
+        if (*src != transparent)
+        {
+            const GifColorType& col = cmap->Colors[*src];
+            *dst     = col.Red;
+            *(dst+1) = col.Green;
+            *(dst+2) = col.Blue;
+            *(dst+3) = 0xFF;
+        }
+    }
+}
+
+void CAImage::setGifImageWithIndex(unsigned int index)
+{
+    CC_RETURN_IF(m_pGIF == NULL);
+    index = MIN(index, m_pGIF->ImageCount-1);
+    m_iGIFIndex = index;
+    
+    CAColor4B bgColor;
+    if (m_pGIF->SColorMap != NULL)
+    {
+        const GifColorType& col = m_pGIF->SColorMap->Colors[m_pGIF->SBackGroundColor];
+        bgColor = ccc4(col.Red, col.Green, col.Blue, 0xFF);
+    }
+
+    static CAColor4B paintingColor;
+    const SavedImage* cur = &m_pGIF->SavedImages[index];
+    
+    if (index == 0)
+    {
+        bool trans;
+        int disposal;
+        this->getTransparencyAndDisposalMethod(cur, &trans, &disposal);
+        if (!trans && m_pGIF->SColorMap != NULL)
+        {
+            paintingColor = ccc4(0, 0, 0, 0);
+        }
+    }
+    else
+    {
+        const SavedImage* prev = &m_pGIF->SavedImages[index-1];
+        
+        bool curTrans;
+        int curDisposal;
+        this->getTransparencyAndDisposalMethod(prev, &curTrans, &curDisposal);
+        bool nextTrans;
+        int nextDisposal;
+        this->getTransparencyAndDisposalMethod(cur, &nextTrans, &nextDisposal);
+        
+        if (nextTrans || !checkIfCover(cur, prev))
+        {
+            if (curDisposal == 2)
+            {
+                unsigned char* dst = &m_pImageData[(prev->ImageDesc.Top * m_uPixelsWide + prev->ImageDesc.Left) * 4];
+                GifWord copyWidth = prev->ImageDesc.Width;
+                
+                if (prev->ImageDesc.Left + copyWidth > m_uPixelsWide)
+                {
+                    copyWidth = m_uPixelsWide - prev->ImageDesc.Left;
+                }
+                
+                GifWord copyHeight = prev->ImageDesc.Height;
+                if (prev->ImageDesc.Top + copyHeight > m_uPixelsHigh)
+                {
+                    copyHeight = m_uPixelsHigh - prev->ImageDesc.Top;
+                }
+                
+                for (; copyHeight > 0; copyHeight--)
+                {
+                    for(int wIndex = 0; wIndex < m_uPixelsWide; wIndex++, dst+=4)
+                    {
+                        *dst     = paintingColor.r;
+                        *(dst+1) = paintingColor.g;
+                        *(dst+2) = paintingColor.b;
+                        *(dst+3) = paintingColor.a;
+                    }
+                }
+            }
+            else if (curDisposal == 3)
+            {
+                //bm->swap(backup);
+            }
+        }
+    }
+    
+    if (index == m_pGIF->ImageCount-1 || !this->checkIfWillBeCleared(cur))
+    {
+        int transparent = -1;
+        for (int i = 0; i < cur->ExtensionBlockCount; ++i)
+        {
+            ExtensionBlock* eb = cur->ExtensionBlocks + i;
+            if (eb->Function == GRAPHICS_EXT_FUNC_CODE &&
+                eb->ByteCount == 4)
+            {
+                bool has_transparency = ((eb->Bytes[0] & 1) == 1);
+                if (has_transparency)
+                {
+                    transparent = (unsigned char)eb->Bytes[3];
+                }
+            }
+        }
+        
+        if (cur->ImageDesc.ColorMap != NULL)
+        {
+            m_pGIF->SColorMap = cur->ImageDesc.ColorMap;
+        }
+ 
+        if (m_pGIF->SColorMap && m_pGIF->SColorMap->ColorCount == (1 << m_pGIF->SColorMap->BitsPerPixel))
+        {
+            unsigned char* src = (unsigned char*)cur->RasterBits;
+            unsigned char* dst = &m_pImageData[(cur->ImageDesc.Top * m_uPixelsWide + cur->ImageDesc.Left) * 4];
+            
+            GifWord copyWidth = cur->ImageDesc.Width;
+            if (cur->ImageDesc.Left + copyWidth > m_uPixelsWide)
+            {
+                copyWidth = m_uPixelsWide - cur->ImageDesc.Left;
+            }
+            
+            GifWord copyHeight = cur->ImageDesc.Height;
+            if (cur->ImageDesc.Top + copyHeight > m_uPixelsHigh)
+            {
+                copyHeight = m_uPixelsHigh - cur->ImageDesc.Top;
+            }
+            
+            for (; copyHeight > 0; copyHeight--)
+            {
+                copyLine(dst, src, m_pGIF->SColorMap, transparent, copyWidth);
+                src += cur->ImageDesc.Width;
+                dst += m_uPixelsWide*4;
+            }
+        }
+        
+    }
+}
+
+void CAImage::getTransparencyAndDisposalMethod(const SavedImage* frame, bool* trans, int* disposal)
+{
+    *trans = false;
+    *disposal = 0;
+    for (int i = 0; i < frame->ExtensionBlockCount; ++i)
+    {
+        ExtensionBlock* eb = frame->ExtensionBlocks + i;
+        if (eb->Function == GRAPHICS_EXT_FUNC_CODE &&
+            eb->ByteCount == 4)
+        {
+            *trans = ((eb->Bytes[0] & 1) == 1);
+            *disposal = ((eb->Bytes[0] >> 2) & 7);
+        }
+    }
+}
+
+bool CAImage::checkIfCover(const SavedImage* target, const SavedImage* covered)
+{
+    if (target->ImageDesc.Left <= covered->ImageDesc.Left
+        && covered->ImageDesc.Left + covered->ImageDesc.Width <=
+        target->ImageDesc.Left + target->ImageDesc.Width
+        && target->ImageDesc.Top <= covered->ImageDesc.Top
+        && covered->ImageDesc.Top + covered->ImageDesc.Height <=
+        target->ImageDesc.Top + target->ImageDesc.Height) {
+        return true;
+    }
+    return false;
+}
+
+
+bool CAImage::checkIfWillBeCleared(const SavedImage* frame)
+{
+    for (int i = 0; i < frame->ExtensionBlockCount; ++i)
+    {
+        ExtensionBlock* eb = frame->ExtensionBlocks + i;
+        if (eb->Function == GRAPHICS_EXT_FUNC_CODE &&
+            eb->ByteCount == 4)
+        {
+            // check disposal method
+            int disposal = ((eb->Bytes[0] >> 2) & 7);
+            if (disposal == 2 || disposal == 3)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 CAImage* CAImage::createWithImageDataNoCache(const unsigned char * data, unsigned long lenght)
@@ -890,10 +1295,10 @@ CAImage* CAImage::createWithRawDataNoCache(const unsigned char * data,
 }
 
 CAImage* CAImage::createWithRawData(const unsigned char * data,
-                                 const CAImage::PixelFormat& pixelFormat,
-                                 unsigned int pixelsWide,
-                                 unsigned int pixelsHigh,
-                                 const std::string& key)
+                                    const CAImage::PixelFormat& pixelFormat,
+                                    unsigned int pixelsWide,
+                                    unsigned int pixelsHigh,
+                                    const std::string& key)
 {
     CAImage* image = CAImage::createWithRawDataNoCache(data, pixelFormat, pixelsWide, pixelsHigh);
     if (image)
@@ -908,29 +1313,26 @@ bool CAImage::initWithImageFile(const std::string& file)
     std::string fullPath = CCFileUtils::sharedFileUtils()->fullPathForFilename(file.c_str());
     unsigned long pSize = 0;
     unsigned char* data = CCFileUtils::sharedFileUtils()->getFileData(fullPath.c_str(), "rb", &pSize);
-    return initWithImageData(data, pSize);
+    bool bRet = initWithImageData(data, pSize);
+	delete[]data;
+	return bRet;
 }
 
 bool CAImage::initWithImageFileThreadSafe(const std::string& fullPath)
 {
     unsigned long pSize = 0;
     unsigned char* data = CCFileUtils::sharedFileUtils()->getFileData(fullPath.c_str(), "rb", &pSize);
-    return initWithImageData(data, pSize);
-}
-
-bool CAImage::initWithImageData(const unsigned char * data, unsigned long dataLen)
-{
     bool ret = false;
     
     do
     {
-        CC_BREAK_IF(! data || dataLen <= 0);
+        CC_BREAK_IF(! data || pSize <= 0);
         
         unsigned char* unpackedData = NULL;
         unsigned long unpackedLen = 0;
         
         unpackedData = const_cast<unsigned char*>(data);
-        unpackedLen = dataLen;
+        unpackedLen = pSize;
         
         Format type = this->detectFormat(unpackedData, unpackedLen);
         
@@ -941,6 +1343,9 @@ bool CAImage::initWithImageData(const unsigned char * data, unsigned long dataLe
                 break;
             case PNG:
                 ret = this->initWithPngData(unpackedData, unpackedLen);
+                break;
+            case GIF:
+                ret = this->initWithGifData(unpackedData, unpackedLen);
                 break;
             case TIFF:
                 ret = this->initWithTiffData(unpackedData, unpackedLen);
@@ -958,63 +1363,66 @@ bool CAImage::initWithImageData(const unsigned char * data, unsigned long dataLe
             }
         }
         
+        if (ret)
+        {
+            this->convertToRawData();
+        }
+        
         if(unpackedData != data)
         {
             free(unpackedData);
         }
-        this->convertToRawData();
-    }
-    while (0);
+        
+    } while (0);
+    
     return ret;
 }
 
-void CAImage::convertToRawData()
+bool CAImage::initWithImageData(const unsigned char * data, unsigned long dataLen)
 {
-    CAImage::PixelFormat      pixelFormat = m_ePixelFormat;
+    bool ret = false;
     
-    unsigned int bitsPerPixel;
-    if(pixelFormat == PixelFormat_RGB888)
+    do
     {
-        bitsPerPixel = 24;
-    }
-    else
-    {
-        bitsPerPixel = bitsPerPixelForFormat(pixelFormat);
-    }
-    
-    int bytesPerComponent = bitsPerPixel / 8;
-    unsigned long                length = (unsigned long)m_uPixelsWide * m_uPixelsHigh * bytesPerComponent;
-    unsigned char*            tempData = m_pData;
-    bool                      hasAlpha = m_bHasAlpha;
-    size_t                    bpp = m_nBitsPerComponent;
-    
-    if (hasAlpha)
-    {
-        pixelFormat = g_defaultAlphaPixelFormat;
-    }
-    else
-    {
-        if (bpp >= 8)
+        CC_BREAK_IF(! data || dataLen <= 0);
+        
+		unsigned char* unpackedData = const_cast<unsigned char*>(data);
+		unsigned long unpackedLen = dataLen;
+        
+        Format type = this->detectFormat(unpackedData, unpackedLen);
+        
+        switch (type)
         {
-            pixelFormat = PixelFormat_RGB888;
-        }
-        else
-        {
-            pixelFormat = PixelFormat_RGB565;
+            case JPG:
+                ret = this->initWithJpgData(unpackedData, unpackedLen);
+                break;
+            case PNG:
+                ret = this->initWithPngData(unpackedData, unpackedLen);
+                break;
+            case GIF:
+                ret = this->initWithGifData(unpackedData, unpackedLen);
+                break;
+            case TIFF:
+                ret = this->initWithTiffData(unpackedData, unpackedLen);
+                break;
+            case WEBP:
+                ret = this->initWithWebpData(unpackedData, unpackedLen);
+                break;
+            case ETC:
+                ret = this->initWithETCData(unpackedData, unpackedLen);
+                break;
+            default:
+            {
+                ret = false;
+                break;
+            }
         }
         
+        this->convertToRawData();
+        this->premultipliedImageData();
     }
-    
-    convertDataToFormat(tempData, length, pixelFormat, m_ePixelFormat, &m_pData, &m_nDataLenght);
-    
-    m_tContentSize = CCSize(m_uPixelsWide, m_uPixelsHigh);
-    m_ePixelFormat = pixelFormat;
-    m_fMaxS = 1;
-    m_fMaxT = 1;
-    
-    m_bHasMipmaps = false;
-    
-    setShaderProgram(CAShaderCache::sharedShaderCache()->programForKey(kCCShader_PositionTexture));
+    while (0);
+    return ret;
 }
 
 bool CAImage::initWithJpgData(const unsigned char *  data, unsigned long dataLen)
@@ -1084,9 +1492,9 @@ bool CAImage::initWithJpgData(const unsigned char *  data, unsigned long dataLen
         row_pointer[0] = static_cast<unsigned char*>(malloc(cinfo.output_width*cinfo.output_components * sizeof(unsigned char)));
         CC_BREAK_IF(! row_pointer[0]);
         
-        m_nDataLenght = cinfo.output_width*cinfo.output_height*cinfo.output_components;
-        m_pData = static_cast<unsigned char*>(malloc(m_nDataLenght * sizeof(unsigned char)));
-        CC_BREAK_IF(! m_pData);
+        m_uImageDataLenght = cinfo.output_width*cinfo.output_height*cinfo.output_components;
+        m_pImageData = static_cast<unsigned char*>(malloc(m_uImageDataLenght * sizeof(unsigned char)));
+        CC_BREAK_IF(! m_pImageData);
         
         /* now actually read the jpeg into the raw buffer */
         /* read one scan line at a time */
@@ -1095,7 +1503,7 @@ bool CAImage::initWithJpgData(const unsigned char *  data, unsigned long dataLen
             jpeg_read_scanlines( &cinfo, row_pointer, 1 );
             for( i=0; i<cinfo.output_width*cinfo.output_components;i++)
             {
-                m_pData[location++] = row_pointer[0][i];
+                m_pImageData[location++] = row_pointer[0][i];
             }
         }
         
@@ -1192,7 +1600,7 @@ bool CAImage::initWithPngData(const unsigned char * data, unsigned long dataLen)
         {
             png_set_packing(png_ptr);
         }
-
+        
         // update info
         png_read_update_info(png_ptr, info_ptr);
         bit_depth = png_get_bit_depth(png_ptr, info_ptr);
@@ -1223,9 +1631,9 @@ bool CAImage::initWithPngData(const unsigned char * data, unsigned long dataLen)
         
         rowbytes = png_get_rowbytes(png_ptr, info_ptr);
         
-        m_nDataLenght = rowbytes * m_uPixelsHigh;
-        m_pData = static_cast<unsigned char*>(malloc(m_nDataLenght * sizeof(unsigned char)));
-        if(!m_pData)
+        m_uImageDataLenght = rowbytes * m_uPixelsHigh;
+        m_pImageData = static_cast<unsigned char*>(malloc(m_uImageDataLenght * sizeof(unsigned char)));
+        if(!m_pImageData)
         {
             if (row_pointers != NULL)
             {
@@ -1236,22 +1644,22 @@ bool CAImage::initWithPngData(const unsigned char * data, unsigned long dataLen)
         
         for (unsigned short i = 0; i < m_uPixelsHigh; ++i)
         {
-            row_pointers[i] = m_pData + i*rowbytes;
+            row_pointers[i] = m_pImageData + i*rowbytes;
         }
         png_read_image(png_ptr, row_pointers);
         
         png_read_end(png_ptr, NULL);
         
-        png_uint_32 channel = rowbytes/m_uPixelsWide;
+        png_uint_32 channel = (png_uint_32)rowbytes/m_uPixelsWide;
         
         // premultiplied alpha for RGBA8888
         if (channel == 4)
         {
             m_bHasAlpha = true;
-            unsigned int* fourBytes = (unsigned int*)m_pData;
+            unsigned int* fourBytes = (unsigned int*)m_pImageData;
             for(unsigned int i = 0; i < m_uPixelsWide * m_uPixelsHigh; i++)
             {
-                unsigned char* p = m_pData + i * 4;
+                unsigned char* p = m_pImageData + i * 4;
                 fourBytes[i] = (unsigned)(((unsigned)((unsigned char)(p[0]) * ((unsigned char)(p[3]) + 1)) >> 8) |
                                           ((unsigned)((unsigned char)(p[1]) * ((unsigned char)(p[3]) + 1) >> 8) << 8) |
                                           ((unsigned)((unsigned char)(p[2]) * ((unsigned char)(p[3]) + 1) >> 8) << 16) |
@@ -1281,6 +1689,42 @@ bool CAImage::initWithPngData(const unsigned char * data, unsigned long dataLen)
     return bRet;
 }
 
+bool CAImage::initWithGifData(const unsigned char * data, unsigned long dataLen)
+{
+    s_pData = data;
+    s_pDataMark = 0;
+    int error = 0;
+    m_pGIF = DGifOpen(NULL,&DecodeCallBackProc,&error);
+    if (NULL == m_pGIF || DGifSlurp(m_pGIF) != GIF_OK)
+    {
+        DGifCloseFile(m_pGIF);
+        m_pGIF = NULL;
+        return false;
+    }
+    
+    m_ePixelFormat = CAImage::PixelFormat_RGBA8888;
+    m_uPixelsWide = m_pGIF->SWidth;
+    m_uPixelsHigh = m_pGIF->SHeight;
+    m_uImageDataLenght = m_uPixelsWide * m_uPixelsHigh * 4;
+    m_pImageData = (unsigned char*)malloc(sizeof(unsigned char) * m_uImageDataLenght);
+    for (unsigned int i = 0; i < m_uPixelsWide * m_uPixelsHigh; i++)
+    {
+        *(m_pImageData + i * 4)     = '\0';
+        *(m_pImageData + i * 4 + 1) = '\0';
+        *(m_pImageData + i * 4 + 2) = '\0';
+        *(m_pImageData + i * 4 + 3) = '\0';
+    }
+    
+    m_bHasPremultipliedAlpha = false;
+    
+    this->setGifImageWithIndex(0);
+    
+    return true;
+}
+
+
+
+
 bool CAImage::initWithTiffData(const unsigned char * data, unsigned long dataLen)
 {
     bool bRet = false;
@@ -1291,55 +1735,54 @@ bool CAImage::initWithTiffData(const unsigned char * data, unsigned long dataLen
         imageSource.data    = data;
         imageSource.size    = dataLen;
         imageSource.offset  = 0;
+
+        tiff* tif = TIFFClientOpen("file.tif", "rb", (thandle_t)&imageSource, tiffReadProc,
+                                   tiffWriteProc, tiffSeekProc,
+                                   tiffCloseProc, tiffSizeProc,
+                                   tiffMapProc, tiffUnmapProc);
         
-        //        TIFF* tif = TIFFClientOpen("file.tif", "r", (thandle_t)&imageSource,
-        //                                   tiffReadProc, tiffWriteProc,
-        //                                   tiffSeekProc, tiffCloseProc, tiffSizeProc,
-        //                                   tiffMapProc,
-        //                                   tiffUnmapProc);
+        CC_BREAK_IF(NULL == tif);
         
-        //        CC_BREAK_IF(NULL == tif);
-        //
-        //        uint32 w = 0, h = 0;
-        //        uint16 bitsPerSample = 0, samplePerPixel = 0, planarConfig = 0;
-        //        size_t npixels = 0;
-        //
-        //        TIFFGetField(tif, TIFFTAG_IMAGEWIDTH, &w);
-        //        TIFFGetField(tif, TIFFTAG_IMAGELENGTH, &h);
-        //        TIFFGetField(tif, TIFFTAG_BITSPERSAMPLE, &bitsPerSample);
-        //        TIFFGetField(tif, TIFFTAG_SAMPLESPERPIXEL, &samplePerPixel);
-        //        TIFFGetField(tif, TIFFTAG_PLANARCONFIG, &planarConfig);
-        //
-        //        npixels = w * h;
-        //
-        //        m_ePixelFormat = CAImage::PixelFormat_RGBA8888;
-        //        m_uPixelsWide = w;
-        //        m_uPixelsHigh = h;
-        //        m_bHasAlpha = true;
-        //        m_nBitsPerComponent = 8;
-        //
-        //        m_nDataLenght = npixels * sizeof (uint32);
-        //        m_pData = static_cast<unsigned char*>(malloc(m_nDataLenght * sizeof(unsigned char)));
-        //
-        //        uint32* raster = (uint32*) _TIFFmalloc(npixels * sizeof (uint32));
-        //        if (raster != NULL)
-        //        {
-        //            if (TIFFReadRGBAImageOriented(tif, w, h, raster, ORIENTATION_TOPLEFT, 0))
-        //            {
-        //                /* the raster data is pre-multiplied by the alpha component
-        //                 after invoking TIFFReadRGBAImageOriented*/
-        //                m_bHasPremultipliedAlpha = true;
-        //
-        //                memcpy(m_pData, raster, npixels*sizeof (uint32));
-        //            }
-        //
-        //            _TIFFfree(raster);
-        //        }
-        //
-        //
-        //        TIFFClose(tif);
-        //
-        //        bRet = true;
+        uint32 w = 0, h = 0;
+        uint16 bitsPerSample = 0, samplePerPixel = 0, planarConfig = 0;
+        size_t npixels = 0;
+        
+        TIFFGetField(tif, TIFFTAG_IMAGEWIDTH, &w);
+        TIFFGetField(tif, TIFFTAG_IMAGELENGTH, &h);
+        TIFFGetField(tif, TIFFTAG_BITSPERSAMPLE, &bitsPerSample);
+        TIFFGetField(tif, TIFFTAG_SAMPLESPERPIXEL, &samplePerPixel);
+        TIFFGetField(tif, TIFFTAG_PLANARCONFIG, &planarConfig);
+        
+        npixels = w * h;
+        
+        m_ePixelFormat = CAImage::PixelFormat_RGBA8888;
+        m_uPixelsWide = w;
+        m_uPixelsHigh = h;
+        m_bHasAlpha = true;
+        m_nBitsPerComponent = 8;
+        
+        m_uImageDataLenght = npixels * sizeof (uint32);
+        m_pImageData = static_cast<unsigned char*>(malloc(m_uImageDataLenght * sizeof(unsigned char)));
+        
+        uint32* raster = (uint32*) _TIFFmalloc(npixels * sizeof (uint32));
+        if (raster != NULL)
+        {
+            if (TIFFReadRGBAImageOriented(tif, w, h, raster, ORIENTATION_TOPLEFT, 0))
+            {
+                /* the raster data is pre-multiplied by the alpha component
+                 after invoking TIFFReadRGBAImageOriented*/
+                m_bHasPremultipliedAlpha = true;
+                
+                memcpy(m_pData, raster, npixels*sizeof (uint32));
+            }
+            
+            _TIFFfree(raster);
+        }
+        
+        
+        TIFFClose(tif);
+        
+        bRet = true;
     } while (0);
     return bRet;
 }
@@ -1361,18 +1804,17 @@ bool CAImage::initWithWebpData(const unsigned char * data, unsigned long dataLen
         m_bHasAlpha = true;
         m_nBitsPerComponent = 8;
         
-        m_nDataLenght = m_uPixelsWide * m_uPixelsHigh * 4;
-        m_pData = static_cast<unsigned char*>(malloc(m_nDataLenght * sizeof(unsigned char)));
+        m_uImageDataLenght = m_uPixelsWide * m_uPixelsHigh * 4;
+        m_pImageData = static_cast<unsigned char*>(malloc(m_uImageDataLenght * sizeof(unsigned char)));
         
-        config.output.u.RGBA.rgba = static_cast<uint8_t*>(m_pData);
+        config.output.u.RGBA.rgba = static_cast<uint8_t*>(m_pImageData);
         config.output.u.RGBA.stride = m_uPixelsWide * 4;
-        config.output.u.RGBA.size = m_nDataLenght;
+        config.output.u.RGBA.size = m_uImageDataLenght;
         config.output.is_external_memory = 1;
         
         if (WebPDecode(static_cast<const uint8_t*>(data), dataLen, &config) != VP8_STATUS_OK)
         {
-            free(m_pData);
-            m_pData = NULL;
+            releaseData(&m_pImageData);
             break;
         }
         
@@ -1383,6 +1825,7 @@ bool CAImage::initWithWebpData(const unsigned char * data, unsigned long dataLen
 
 bool CAImage::initWithETCData(const unsigned char * data, unsigned long dataLen)
 {
+
     return false;
 }
 
@@ -1392,6 +1835,7 @@ bool CAImage::initWithRawData(const unsigned char * data,
                               unsigned int pixelsWide,
                               unsigned int pixelsHigh)
 {
+    
     unsigned int bitsPerPixel;
     //Hack: bitsPerPixelForFormat returns wrong number for RGB_888 textures. See function.
     if(pixelFormat == PixelFormat_RGB888)
@@ -1403,7 +1847,93 @@ bool CAImage::initWithRawData(const unsigned char * data,
         bitsPerPixel = bitsPerPixelForFormat(pixelFormat);
     }
     
-    unsigned int bytesPerRow = pixelsWide * bitsPerPixel / 8;
+    int bytesPerComponent = bitsPerPixel / 8;
+    unsigned long nDataLenght = (unsigned long)pixelsWide * pixelsHigh * bytesPerComponent;
+    
+    this->setData(data, nDataLenght);
+    
+    m_tContentSize = CCSize(pixelsWide, pixelsHigh);
+    m_uPixelsWide = pixelsWide;
+    m_uPixelsHigh = pixelsHigh;
+    m_ePixelFormat = pixelFormat;
+    m_fMaxS = 1;
+    m_fMaxT = 1;
+    
+    
+    m_bHasMipmaps = false;
+    
+    switch (pixelFormat)
+    {
+        case PixelFormat_RGBA8888:
+        case PixelFormat_RGBA4444:
+        case PixelFormat_RGB5A1:
+        case PixelFormat_AI88:
+        {
+            m_bHasAlpha = true;
+            m_bHasPremultipliedAlpha = true;
+        }
+            break;
+        case PixelFormat_RGB888:
+        case PixelFormat_RGB565:
+        case PixelFormat_I8:
+        case PixelFormat_A8:
+        default:
+        {
+            m_bHasAlpha = false;
+            m_bHasPremultipliedAlpha = false;
+        }
+            break;
+    }
+
+    this->repremultipliedImageData();
+    
+    return true;
+}
+
+void CAImage::setData(const unsigned char* data, unsigned long dataLenght)
+{
+    m_uDataLenght = dataLenght;
+    unsigned char * tmpData = static_cast<unsigned char*>(malloc(m_uDataLenght * sizeof(unsigned char)));
+    memcpy(tmpData, data, m_uDataLenght);
+    
+    releaseData(&m_pData);
+    m_pData = tmpData;
+}
+
+void CAImage::convertToRawData()
+{
+    unsigned char* data = NULL;
+    unsigned long lenght = 0;
+    convertDataToFormat(m_pImageData, m_uImageDataLenght, m_ePixelFormat, m_ePixelFormat, &data, &lenght);
+    this->setData(data, lenght);
+    releaseData(&m_pImageData);
+    m_uImageDataLenght = 0;
+
+    m_tContentSize = CCSize(m_uPixelsWide, m_uPixelsHigh);
+    m_fMaxS = 1;
+    m_fMaxT = 1;
+    
+    m_bHasMipmaps = false;
+    
+    setShaderProgram(CAShaderCache::sharedShaderCache()->programForKey(kCCShader_PositionTexture));
+}
+
+void CAImage::premultipliedImageData()
+{
+    CC_RETURN_IF(m_bPremultiplied);
+    m_bPremultiplied = true;
+    
+    unsigned int bitsPerPixel;
+    if(m_ePixelFormat == PixelFormat_RGB888)
+    {
+        bitsPerPixel = 24;
+    }
+    else
+    {
+        bitsPerPixel = bitsPerPixelForFormat(m_ePixelFormat);
+    }
+    
+    unsigned int bytesPerRow = m_uPixelsWide * bitsPerPixel / 8;
     
     if(bytesPerRow % 8 == 0)
     {
@@ -1422,6 +1952,7 @@ bool CAImage::initWithRawData(const unsigned char * data,
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     }
     
+    this->freeName();
     
     glGenTextures(1, &m_uName);
     ccGLBindTexture2D(m_uName);
@@ -1433,59 +1964,115 @@ bool CAImage::initWithRawData(const unsigned char * data,
     
     // Specify OpenGL texture image
     
-    switch(pixelFormat)
+    switch(m_ePixelFormat)
     {
         case PixelFormat_RGBA8888:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)pixelsWide, (GLsizei)pixelsHigh, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+            glTexImage2D(GL_TEXTURE_2D,
+                         0,
+                         GL_RGBA,
+                         (GLsizei)m_uPixelsWide,
+                         (GLsizei)m_uPixelsHigh,
+                         0,
+                         GL_RGBA,
+                         GL_UNSIGNED_BYTE,
+                         (const GLvoid *)m_pData);
             break;
         case PixelFormat_RGB888:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, (GLsizei)pixelsWide, (GLsizei)pixelsHigh, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+            glTexImage2D(GL_TEXTURE_2D,
+                         0,
+                         GL_RGB,
+                         (GLsizei)m_uPixelsWide,
+                         (GLsizei)m_uPixelsHigh,
+                         0,
+                         GL_RGB,
+                         GL_UNSIGNED_BYTE,
+                         (const GLvoid *)m_pData);
             break;
         case PixelFormat_RGBA4444:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)pixelsWide, (GLsizei)pixelsHigh, 0, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, data);
+            glTexImage2D(GL_TEXTURE_2D,
+                         0,
+                         GL_RGBA,
+                         (GLsizei)m_uPixelsWide,
+                         (GLsizei)m_uPixelsHigh,
+                         0,
+                         GL_RGBA,
+                         GL_UNSIGNED_SHORT_4_4_4_4,
+                         (const GLvoid *)m_pData);
             break;
         case CAImage::PixelFormat_RGB5A1:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)pixelsWide, (GLsizei)pixelsHigh, 0, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, data);
+            glTexImage2D(GL_TEXTURE_2D,
+                         0,
+                         GL_RGBA,
+                         (GLsizei)m_uPixelsWide,
+                         (GLsizei)m_uPixelsHigh,
+                         0,
+                         GL_RGBA,
+                         GL_UNSIGNED_SHORT_5_5_5_1,
+                         (const GLvoid *)m_pData);
             break;
         case PixelFormat_RGB565:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, (GLsizei)pixelsWide, (GLsizei)pixelsHigh, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, data);
+            glTexImage2D(GL_TEXTURE_2D,
+                         0,
+                         GL_RGB,
+                         (GLsizei)m_uPixelsWide,
+                         (GLsizei)m_uPixelsHigh,
+                         0,
+                         GL_RGB,
+                         GL_UNSIGNED_SHORT_5_6_5,
+                         (const GLvoid *)m_pData);
             break;
         case PixelFormat_AI88:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, (GLsizei)pixelsWide, (GLsizei)pixelsHigh, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, data);
+            glTexImage2D(GL_TEXTURE_2D,
+                         0,
+                         GL_LUMINANCE_ALPHA,
+                         (GLsizei)m_uPixelsWide,
+                         (GLsizei)m_uPixelsHigh,
+                         0,
+                         GL_LUMINANCE_ALPHA,
+                         GL_UNSIGNED_BYTE,
+                         (const GLvoid *)m_pData);
             break;
         case PixelFormat_A8:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, (GLsizei)pixelsWide, (GLsizei)pixelsHigh, 0, GL_ALPHA, GL_UNSIGNED_BYTE, data);
+            glTexImage2D(GL_TEXTURE_2D,
+                         0, GL_ALPHA,
+                         (GLsizei)m_uPixelsWide,
+                         (GLsizei)m_uPixelsHigh,
+                         0,
+                         GL_ALPHA,
+                         GL_UNSIGNED_BYTE,
+                         (const GLvoid *)m_pData);
             break;
         case PixelFormat_I8:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, (GLsizei)pixelsWide, (GLsizei)pixelsHigh, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, data);
+            glTexImage2D(GL_TEXTURE_2D,
+                         0, GL_LUMINANCE,
+                         (GLsizei)m_uPixelsWide,
+                         (GLsizei)m_uPixelsHigh,
+                         0,
+                         GL_LUMINANCE,
+                         GL_UNSIGNED_BYTE,
+                         (const GLvoid *)m_pData);
             break;
         default:
             CCAssert(0, "NSInternalInconsistencyException");
             
     }
-    if (m_pData)
-    {
-        free(m_pData);
-    }
-    
-    int bytesPerComponent = bitsPerPixel / 8;
-    m_nDataLenght = (unsigned long)pixelsWide * pixelsHigh * bytesPerComponent;
-    m_pData = static_cast<unsigned char*>(malloc(m_nDataLenght * sizeof(unsigned char)));
-    memcpy(m_pData, data, m_nDataLenght);
-    
-    m_tContentSize = CCSize(pixelsWide, pixelsHigh);
-    m_uPixelsWide = pixelsWide;
-    m_uPixelsHigh = pixelsHigh;
-    m_ePixelFormat = pixelFormat;
-    m_fMaxS = 1;
-    m_fMaxT = 1;
-    
-    m_bHasPremultipliedAlpha = false;
-    m_bHasMipmaps = false;
     
     setShaderProgram(CAShaderCache::sharedShaderCache()->programForKey(kCCShader_PositionTexture));
-    
-    return true;
+}
+
+void CAImage::freeName()
+{
+    if(m_uName)
+    {
+        ccGLDeleteTexture(m_uName);
+        m_uName = 0;
+    }
+}
+
+void CAImage::repremultipliedImageData()
+{
+    m_bPremultiplied = false;
+    this->premultipliedImageData();
 }
 
 const CAImage::PixelFormat& CAImage::getPixelFormat()
@@ -1508,17 +2095,7 @@ GLuint CAImage::getName()
     return m_uName;
 }
 
-CCSize CAImage::getContentSize()
-{
-
-    CCSize ret;
-    ret.width = m_tContentSize.width / CC_CONTENT_SCALE_FACTOR();
-    ret.height = m_tContentSize.height / CC_CONTENT_SCALE_FACTOR();
-    
-    return ret;
-}
-
-const CCSize& CAImage::getContentSizeInPixels()
+const CCSize& CAImage::getContentSize()
 {
     return m_tContentSize;
 }
@@ -1555,9 +2132,15 @@ void CAImage::setShaderProgram(CAGLProgram* pShaderProgram)
     m_pShaderProgram = pShaderProgram;
 }
 
-void CAImage::releaseData(void *data)
+void CAImage::releaseData()
 {
-    free(data);
+    releaseData(&m_pData);
+}
+
+void CAImage::releaseData(unsigned char ** data)
+{
+    free(*data);
+    *data = NULL;
 }
 
 bool CAImage::hasPremultipliedAlpha()
@@ -1570,152 +2153,71 @@ const char* CAImage::description(void)
     return CCString::createWithFormat("<CAImage | Name = %u | Dimensions = %u x %u | Coordinates = (%.2f, %.2f)>", m_uName, m_uPixelsWide, m_uPixelsHigh, m_fMaxS, m_fMaxT)->getCString();
 }
 
-void CAImage::premultipliedAImageData()
-{
-    CC_RETURN_IF(m_bPremultiplied);
-    
-    CAImage::PixelFormat      pixelFormat = m_ePixelFormat;
-
-    unsigned int bitsPerPixel;
-    if(pixelFormat == PixelFormat_RGB888)
-    {
-        bitsPerPixel = 24;
-    }
-    else
-    {
-        bitsPerPixel = bitsPerPixelForFormat(pixelFormat);
-    }
-
-    unsigned int bytesPerRow = m_uPixelsWide * bitsPerPixel / 8;
-    
-    if(bytesPerRow % 8 == 0)
-    {
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 8);
-    }
-    else if(bytesPerRow % 4 == 0)
-    {
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-    }
-    else if(bytesPerRow % 2 == 0)
-    {
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
-    }
-    else
-    {
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    }
-    
-    
-    glGenTextures(1, &m_uName);
-    ccGLBindTexture2D(m_uName);
-    
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-    
-    // Specify OpenGL texture image
-    
-    switch(pixelFormat)
-    {
-        case PixelFormat_RGBA8888:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)m_uPixelsWide, (GLsizei)m_uPixelsHigh, 0, GL_RGBA, GL_UNSIGNED_BYTE, m_pData);
-            break;
-        case PixelFormat_RGB888:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, (GLsizei)m_uPixelsWide, (GLsizei)m_uPixelsHigh, 0, GL_RGB, GL_UNSIGNED_BYTE, m_pData);
-            break;
-        case PixelFormat_RGBA4444:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)m_uPixelsWide, (GLsizei)m_uPixelsHigh, 0, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, m_pData);
-            break;
-        case CAImage::PixelFormat_RGB5A1:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)m_uPixelsWide, (GLsizei)m_uPixelsHigh, 0, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, m_pData);
-            break;
-        case PixelFormat_RGB565:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, (GLsizei)m_uPixelsWide, (GLsizei)m_uPixelsHigh, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, m_pData);
-            break;
-        case PixelFormat_AI88:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, (GLsizei)m_uPixelsWide, (GLsizei)m_uPixelsHigh, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, m_pData);
-            break;
-        case PixelFormat_A8:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, (GLsizei)m_uPixelsWide, (GLsizei)m_uPixelsHigh, 0, GL_ALPHA, GL_UNSIGNED_BYTE, m_pData);
-            break;
-        case PixelFormat_I8:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, (GLsizei)m_uPixelsWide, (GLsizei)m_uPixelsHigh, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, m_pData);
-            break;
-        default:
-            CCAssert(0, "NSInternalInconsistencyException");
-            
-    }
-    m_bPremultiplied = true;
-}
-
-void CAImage::repremultipliedAImageData()
-{
-    m_bPremultiplied = false;
-    this->premultipliedAImageData();
-}
-
 void CAImage::drawAtPoint(const CCPoint& point)
 {
-    GLfloat    coordinates[] = {    
-        0.0f,    m_fMaxT,
-        m_fMaxS,m_fMaxT,
-        0.0f,    0.0f,
-        m_fMaxS,0.0f };
-
-    GLfloat    width = (GLfloat)m_uPixelsWide * m_fMaxS,
-        height = (GLfloat)m_uPixelsHigh * m_fMaxT;
-
-    GLfloat        vertices[] = {    
-        point.x,            point.y,
-        width + point.x,    point.y,
-        point.x,            height  + point.y,
-        width + point.x,    height  + point.y };
-
+    GLfloat    coordinates[] =
+    {
+        0.0f,       m_fMaxT,
+        m_fMaxS,    m_fMaxT,
+        0.0f,       0.0f,
+        m_fMaxS,    0.0f
+    };
+    
+    GLfloat    vertices[] =
+    {
+        point.x,                          point.y,                           /*0.0f,*/
+        point.x + m_tContentSize.width,   point.y,                           /*0.0f,*/
+        point.x,                          point.y + m_tContentSize.height,   /*0.0f,*/
+        point.x + m_tContentSize.width,   point.y + m_tContentSize.height,   /*0.0f*/
+    };
+    
     ccGLEnableVertexAttribs( kCCVertexAttribFlag_Position | kCCVertexAttribFlag_TexCoords );
     m_pShaderProgram->use();
     m_pShaderProgram->setUniformsForBuiltins();
-
+    
     ccGLBindTexture2D( m_uName );
-
-
+    
 #ifdef EMSCRIPTEN
     setGLBufferData(vertices, 8 * sizeof(GLfloat), 0);
     glVertexAttribPointer(kCCVertexAttrib_Position, 2, GL_FLOAT, GL_FALSE, 0, 0);
-
+    
     setGLBufferData(coordinates, 8 * sizeof(GLfloat), 1);
     glVertexAttribPointer(kCCVertexAttrib_TexCoords, 2, GL_FLOAT, GL_FALSE, 0, 0);
 #else
     glVertexAttribPointer(kCCVertexAttrib_Position, 2, GL_FLOAT, GL_FALSE, 0, vertices);
     glVertexAttribPointer(kCCVertexAttrib_TexCoords, 2, GL_FLOAT, GL_FALSE, 0, coordinates);
 #endif // EMSCRIPTEN
-
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
 void CAImage::drawInRect(const CCRect& rect)
 {
-    GLfloat    coordinates[] = {    
-        0.0f,    m_fMaxT,
-        m_fMaxS,m_fMaxT,
-        0.0f,    0.0f,
-        m_fMaxS,0.0f };
-
-    GLfloat    vertices[] = {    rect.origin.x,        rect.origin.y,                            /*0.0f,*/
-        rect.origin.x + rect.size.width,        rect.origin.y,                            /*0.0f,*/
-        rect.origin.x,                            rect.origin.y + rect.size.height,        /*0.0f,*/
-        rect.origin.x + rect.size.width,        rect.origin.y + rect.size.height,        /*0.0f*/ };
-
+    GLfloat    coordinates[] =
+    {
+        0.0f,       m_fMaxT,
+        m_fMaxS,    m_fMaxT,
+        0.0f,       0.0f,
+        m_fMaxS,    0.0f
+    };
+    
+    GLfloat    vertices[] =
+    {
+        rect.origin.x,                     rect.origin.y,                      /*0.0f,*/
+        rect.origin.x + rect.size.width,   rect.origin.y,                      /*0.0f,*/
+        rect.origin.x,                     rect.origin.y + rect.size.height,   /*0.0f,*/
+        rect.origin.x + rect.size.width,   rect.origin.y + rect.size.height,   /*0.0f*/
+    };
+    
     ccGLEnableVertexAttribs( kCCVertexAttribFlag_Position | kCCVertexAttribFlag_TexCoords );
     m_pShaderProgram->use();
     m_pShaderProgram->setUniformsForBuiltins();
-
+    
     ccGLBindTexture2D( m_uName );
-
+    
 #ifdef EMSCRIPTEN
     setGLBufferData(vertices, 8 * sizeof(GLfloat), 0);
     glVertexAttribPointer(kCCVertexAttrib_Position, 2, GL_FLOAT, GL_FALSE, 0, 0);
-
+    
     setGLBufferData(coordinates, 8 * sizeof(GLfloat), 1);
     glVertexAttribPointer(kCCVertexAttrib_TexCoords, 2, GL_FLOAT, GL_FALSE, 0, 0);
 #else
@@ -1728,7 +2230,7 @@ void CAImage::drawInRect(const CCRect& rect)
 bool CAImage::initWithETCFile(const char* file)
 {
     bool bRet = false;
-
+    
     return bRet;
 }
 
@@ -1748,21 +2250,21 @@ bool CAImage::hasMipmaps()
 void CAImage::setTexParameters(ccTexParams *texParams)
 {
     CCAssert( (m_uPixelsWide == ccNextPOT(m_uPixelsWide) || texParams->wrapS == GL_CLAMP_TO_EDGE) &&
-        (m_uPixelsHigh == ccNextPOT(m_uPixelsHigh) || texParams->wrapT == GL_CLAMP_TO_EDGE),
-        "GL_CLAMP_TO_EDGE should be used in NPOT dimensions");
-
+             (m_uPixelsHigh == ccNextPOT(m_uPixelsHigh) || texParams->wrapT == GL_CLAMP_TO_EDGE),
+             "GL_CLAMP_TO_EDGE should be used in NPOT dimensions");
+    
     ccGLBindTexture2D( m_uName );
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, texParams->minFilter );
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, texParams->magFilter );
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, texParams->wrapS );
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, texParams->wrapT );
-
+    
 }
 
 void CAImage::setAliasTexParameters()
 {
     ccGLBindTexture2D( m_uName );
-
+    
     if( ! m_bHasMipmaps )
     {
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
@@ -1771,14 +2273,14 @@ void CAImage::setAliasTexParameters()
     {
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST );
     }
-
+    
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
 }
 
 void CAImage::setAntiAliasTexParameters()
 {
     ccGLBindTexture2D( m_uName );
-
+    
     if( ! m_bHasMipmaps )
     {
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
@@ -1787,111 +2289,96 @@ void CAImage::setAntiAliasTexParameters()
     {
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST );
     }
-
+    
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
 }
 
 const char* CAImage::stringForFormat()
 {
-	switch (m_ePixelFormat) 
-	{
-		case PixelFormat_RGBA8888:
-			return  "RGBA8888";
-
-		case PixelFormat_RGB888:
-			return  "RGB888";
-
-		case PixelFormat_RGB565:
-			return  "RGB565";
-
-		case PixelFormat_RGBA4444:
-			return  "RGBA4444";
-
-		case PixelFormat_RGB5A1:
-			return  "RGB5A1";
-
-		case PixelFormat_AI88:
-			return  "AI88";
-
-		case PixelFormat_A8:
-			return  "A8";
-
-		case PixelFormat_I8:
-			return  "I8";
+    switch (m_ePixelFormat)
+    {
+        case PixelFormat_RGBA8888:
+            return  "RGBA8888";
             
-		default:
-			CCAssert(false , "unrecognized pixel format");
-			CCLOG("stringForFormat: %ld, cannot give useful result", (long)m_ePixelFormat);
-			break;
-	}
-
-	return  NULL;
-}
-
-//
-// Texture options for images that contains alpha
-//
-// implementation CAImage (PixelFormat)
-
-void CAImage::setDefaultAlphaPixelFormat(CAImage::PixelFormat format)
-{
-    g_defaultAlphaPixelFormat = format;
-}
-
-CAImage::PixelFormat CAImage::defaultAlphaPixelFormat()
-{
-    return g_defaultAlphaPixelFormat;
+        case PixelFormat_RGB888:
+            return  "RGB888";
+            
+        case PixelFormat_RGB565:
+            return  "RGB565";
+            
+        case PixelFormat_RGBA4444:
+            return  "RGBA4444";
+            
+        case PixelFormat_RGB5A1:
+            return  "RGB5A1";
+            
+        case PixelFormat_AI88:
+            return  "AI88";
+            
+        case PixelFormat_A8:
+            return  "A8";
+            
+        case PixelFormat_I8:
+            return  "I8";
+            
+        default:
+            CCAssert(false , "unrecognized pixel format");
+            CCLOG("stringForFormat: %ld, cannot give useful result", (long)m_ePixelFormat);
+            break;
+    }
+    
+    return  NULL;
 }
 
 unsigned int CAImage::bitsPerPixelForFormat(CAImage::PixelFormat format)
 {
-	unsigned int ret = 0;
-
-	switch (format) {
-		case PixelFormat_RGBA8888:
-			ret = 32;
-			break;
-		case PixelFormat_RGB888:
-			// It is 32 and not 24, since its internal representation uses 32 bits.
-			ret = 32;
-			break;
-		case PixelFormat_RGB565:
-			ret = 16;
-			break;
-		case PixelFormat_RGBA4444:
-			ret = 16;
-			break;
-		case CAImage::PixelFormat_RGB5A1:
-			ret = 16;
-			break;
-		case PixelFormat_AI88:
-			ret = 16;
-			break;
-		case PixelFormat_A8:
-			ret = 8;
-			break;
-		case PixelFormat_I8:
-			ret = 8;
-			break;
-		default:
-			ret = -1;
-			CCLog("bitsPerPixelForFormat: %ld, cannot give useful result", (long)format);
-			break;
-	}
-	return ret;
+    unsigned int ret = 0;
+    
+    switch (format) {
+        case PixelFormat_RGBA8888:
+            ret = 32;
+            break;
+        case PixelFormat_RGB888:
+            // It is 32 and not 24, since its internal representation uses 32 bits.
+            ret = 32;
+            break;
+        case PixelFormat_RGB565:
+            ret = 16;
+            break;
+        case PixelFormat_RGBA4444:
+            ret = 16;
+            break;
+        case PixelFormat_RGB5A1:
+            ret = 16;
+            break;
+        case PixelFormat_AI88:
+            ret = 16;
+            break;
+        case PixelFormat_A8:
+            ret = 8;
+            break;
+        case PixelFormat_I8:
+            ret = 8;
+            break;
+        default:
+            ret = -1;
+            CCAssert(false , "unrecognized pixel format");
+            CCLOG("bitsPerPixelForFormat: %ld, cannot give useful result", (long)format);
+            break;
+    }
+    return ret;
 }
 
 unsigned int CAImage::bitsPerPixelForFormat()
 {
-	return this->bitsPerPixelForFormat(m_ePixelFormat);
+    return this->bitsPerPixelForFormat(m_ePixelFormat);
 }
 
-#if (CC_TARGET_PLATFORM != CC_PLATFORM_IOS)
 
 bool CAImage::saveImageToPNG(const std::string& filePath, bool isToRGB)
 {
     bool bRet = false;
-
+    
     do
     {
         FILE *fp;
@@ -2038,7 +2525,7 @@ bool CAImage::saveImageToPNG(const std::string& filePath, bool isToRGB)
 bool CAImage::saveImageToJPG(const std::string& filePath)
 {
     bool bRet = false;
-
+    
     do
     {
         struct jpeg_compress_struct cinfo;
@@ -2113,11 +2600,9 @@ bool CAImage::saveImageToJPG(const std::string& filePath)
         
         bRet = true;
     } while (0);
-
+    
     return bRet;
 }
-
-#endif
 
 bool CAImage::saveToFile(const std::string& fullPath, bool bIsToRGB)
 {
@@ -2128,7 +2613,7 @@ bool CAImage::saveToFile(const std::string& fullPath, bool bIsToRGB)
     }
     
     bool bRet = false;
-
+    
     do
     {
         CC_BREAK_IF(fullPath.size() <= 4);
@@ -2140,7 +2625,7 @@ bool CAImage::saveToFile(const std::string& fullPath, bool bIsToRGB)
         }
         
         if (std::string::npos != strLowerCasePath.find(".jpg")
-                 || std::string::npos != strLowerCasePath.find(".jpeg"))
+            || std::string::npos != strLowerCasePath.find(".jpeg"))
         {
             CC_BREAK_IF(!saveImageToJPG(fullPath));
         }
@@ -2165,7 +2650,7 @@ float CAImage::getAspectRatio()
 CAImage* CAImage::copy()
 {
     CAImage *newImage = new CAImage();
-    
+    newImage->autorelease();
     newImage->m_ePixelFormat = this->m_ePixelFormat;
     newImage->m_uPixelsWide = this->m_uPixelsWide;
     newImage->m_uPixelsHigh = this->m_uPixelsHigh;
@@ -2179,13 +2664,14 @@ CAImage* CAImage::copy()
     newImage->m_bHasPremultipliedAlpha = this->m_bHasPremultipliedAlpha;
     newImage->m_bHasAlpha = this->m_bHasAlpha;
     newImage->m_nBitsPerComponent = this->m_nBitsPerComponent;
-    newImage->m_nDataLenght = this->m_nDataLenght;
+    newImage->m_uDataLenght = this->m_uDataLenght;
     
-    newImage->m_pData = static_cast<unsigned char*>(malloc(m_nDataLenght * sizeof(unsigned char)));
-    memcpy(newImage->m_pData, this->m_pData, m_nDataLenght);
+    newImage->m_pData = static_cast<unsigned char*>(malloc(m_uDataLenght * sizeof(unsigned char)));
+    memcpy(newImage->m_pData, this->m_pData, m_uDataLenght);
     
     return newImage;
 }
+
 const char* CAImage::getImageFileType()
 {
     const char* text = NULL;
@@ -2242,6 +2728,10 @@ CAImage::Format CAImage::detectFormat(const unsigned char * data, unsigned long 
     {
         return CAImage::JPG;
     }
+    else if (isGif(data, dataLen))
+    {
+        return CAImage::GIF;
+    }
     else if (isTiff(data, dataLen))
     {
         return CAImage::TIFF;
@@ -2273,13 +2763,6 @@ bool CAImage::isPng(const unsigned char * data, unsigned long dataLen)
     return memcmp(PNG_SIGNATURE, data, sizeof(PNG_SIGNATURE)) == 0;
 }
 
-
-bool CAImage::isEtc(const unsigned char * data, unsigned long dataLen)
-{
-//    return etc1_pkm_is_valid((etc1_byte*)data) ? true : false;
-    return false;
-}
-
 bool CAImage::isJpg(const unsigned char * data, unsigned long dataLen)
 {
     if (dataLen <= 4)
@@ -2292,6 +2775,28 @@ bool CAImage::isJpg(const unsigned char * data, unsigned long dataLen)
     return memcmp(data, JPG_SOI, 2) == 0;
 }
 
+bool CAImage::isGif(const unsigned char * data, unsigned long dataLen)
+{
+    if (dataLen <= 6)
+    {
+        return false;
+    }
+    
+    static const unsigned char JPG_SOI[] = GIF87_STAMP;
+    static const unsigned char JPG_SOI2[] = GIF89_STAMP;
+    static const unsigned char JPG_SOI3[] = GIF_STAMP;
+
+    return     (memcmp(data, JPG_SOI, 6) == 0)
+            || (memcmp(data, JPG_SOI2, 6) == 0)
+            || (memcmp(data, JPG_SOI3, 6) == 0);
+}
+
+bool CAImage::isEtc(const unsigned char * data, unsigned long dataLen)
+{
+    //    return etc1_pkm_is_valid((etc1_byte*)data) ? true : false;
+    return false;
+}
+
 bool CAImage::isTiff(const unsigned char * data, unsigned long dataLen)
 {
     if (dataLen <= 4)
@@ -2302,8 +2807,16 @@ bool CAImage::isTiff(const unsigned char * data, unsigned long dataLen)
     static const char* TIFF_II = "II";
     static const char* TIFF_MM = "MM";
     
-    return (memcmp(data, TIFF_II, 2) == 0 && *(static_cast<const unsigned char*>(data) + 2) == 42 && *(static_cast<const unsigned char*>(data) + 3) == 0) ||
-    (memcmp(data, TIFF_MM, 2) == 0 && *(static_cast<const unsigned char*>(data) + 2) == 0 && *(static_cast<const unsigned char*>(data) + 3) == 42);
+    return (    memcmp(data, TIFF_II, 2) == 0
+                &&
+                *(static_cast<const unsigned char*>(data) + 2) == 42
+                &&
+                *(static_cast<const unsigned char*>(data) + 3) == 0)
+            || (memcmp(data, TIFF_MM, 2) == 0
+                &&
+                *(static_cast<const unsigned char*>(data) + 2) == 0
+                &&
+                *(static_cast<const unsigned char*>(data) + 3) == 42);
 }
 
 bool CAImage::isWebp(const unsigned char * data, unsigned long dataLen)
@@ -2316,8 +2829,23 @@ bool CAImage::isWebp(const unsigned char * data, unsigned long dataLen)
     static const char* WEBP_RIFF = "RIFF";
     static const char* WEBP_WEBP = "WEBP";
     
-    return memcmp(data, WEBP_RIFF, 4) == 0
-    && memcmp(static_cast<const unsigned char*>(data) + 8, WEBP_WEBP, 4) == 0;
+    return  memcmp(data, WEBP_RIFF, 4) == 0
+            &&
+            memcmp(static_cast<const unsigned char*>(data) + 8, WEBP_WEBP, 4) == 0;
 }
 
+
+
+void CAImage::reloadAllImages()
+{
+    for (std::set<CAImage*>::iterator itr=s_pImages.begin(); itr!=s_pImages.end(); itr++)
+    {
+        (*itr)->freeName();
+    }
+    
+    for (std::set<CAImage*>::iterator itr=s_pImages.begin(); itr!=s_pImages.end(); itr++)
+    {
+        (*itr)->repremultipliedImageData();
+    }
+}
 NS_CC_END

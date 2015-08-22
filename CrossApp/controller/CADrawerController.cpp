@@ -7,7 +7,7 @@
 //
 
 #include "CADrawerController.h"
-#include "basics/CAScheduler.h"
+#include "animation/CAAnimation.h"
 #include "basics/CAApplication.h"
 #include "dispatcher/CATouchDispatcher.h"
 
@@ -24,13 +24,14 @@ CADrawerController::CADrawerController()
 ,m_pBackgroundView(NULL)
 {
     this->getView()->setColor(CAColor_clear);
-    this->setTouchMovedListenVertical(false);
     this->setTouchMoved(true);
+    this->setVerticalScrollEnabled(false);
 }
 
 CADrawerController::~CADrawerController()
 {
-
+    CC_SAFE_RELEASE(m_pLeftViewController);
+    CC_SAFE_RELEASE(m_pRightViewController);
 }
 
 bool CADrawerController::initWithController(CAViewController* leftViewController, CAViewController* rightViewController, float division)
@@ -189,8 +190,6 @@ void CADrawerController::showLeftViewController(bool animated)
         this->updateViewFrame();
         this->hideEnded();
     }
-    m_bSlidingMaxX = false;
-    m_bSlidingMinX = true;
 }
 
 void CADrawerController::hideLeftViewController(bool animated)
@@ -210,8 +209,6 @@ void CADrawerController::hideLeftViewController(bool animated)
         this->updateViewFrame();
         this->hideEnded();
     }
-    m_bSlidingMaxX = true;
-    m_bSlidingMinX = false;
 }
 
 bool CADrawerController::isShowLeftViewController()
@@ -248,6 +245,7 @@ void CADrawerController::updateViewFrame()
         float scale0 = 0.5f + 0.5f * m_fCurrDivision / m_fDivision;
         float scale1 = 1.0f - powf(m_fCurrDivision / m_fDivision, 2) * 0.2f;
         
+        m_pContainer[0]->setAlpha(m_fCurrDivision / m_fDivision);
         m_pContainer[0]->setScale(scale0);
         m_pContainer[1]->setScale(scale1);
         point[0].x = (point[1].x - m_pContainer[0]->getFrame().size.width) / 3;
@@ -289,9 +287,19 @@ void CADrawerController::scheduleHideAction(float dt)
     }
 }
 
-bool CADrawerController::ccTouchBegan(CATouch *pTouch, CAEvent *pEvent)
+bool CADrawerController::isReachBoundaryLeft()
 {
     return this->isShowLeftViewController();
+}
+
+bool CADrawerController::isReachBoundaryRight()
+{
+    return !this->isShowLeftViewController();
+}
+
+bool CADrawerController::ccTouchBegan(CATouch *pTouch, CAEvent *pEvent)
+{
+    return true;
 }
 
 void CADrawerController::ccTouchMoved(CATouch *pTouch, CAEvent *pEvent)
@@ -321,7 +329,7 @@ void CADrawerController::ccTouchEnded(CATouch *pTouch, CAEvent *pEvent)
     {
         this->hideLeftViewController(true);
     }
-    else if (fabsf(m_fOffX) > FLT_EPSILON)
+    else if (std::abs(m_fOffX) > FLT_EPSILON)
     {
         if (m_fOffX > 0)
         {
@@ -370,7 +378,8 @@ CAView* CADrawerController::getBackgroundView()
 
 void CADrawerController::setTouchMoved(bool var)
 {
-    m_bTouchMovedStopSubviews = m_bTouchMoved = var;
+    m_bTouchMoved = var;
+    this->setPriorityScroll(var);
 }
 
 bool CADrawerController::isTouchMoved()

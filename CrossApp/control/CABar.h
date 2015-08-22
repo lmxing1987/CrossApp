@@ -6,8 +6,8 @@
 //  Copyright (c) 2014 http://9miao.com All rights reserved.
 //
 
-#ifndef __CrossAppx__CABar__
-#define __CrossAppx__CABar__
+#ifndef __CrossApp__CABar__
+#define __CrossApp__CABar__
 
 #include <iostream>
 #include "view/CAView.h"
@@ -33,7 +33,7 @@ class CC_DLL CANavigationBar
     
 public:
     
-    CREATE_FUNC(CANavigationBar);
+    static CANavigationBar* create(const CCSize& size = CCSizeZero);
 
 public:
     
@@ -41,7 +41,7 @@ public:
     
     virtual ~CANavigationBar();
     
-    virtual bool init();
+    virtual bool init(const CCSize& size = CCSizeZero);
     
     virtual void onEnterTransitionDidFinish();
     
@@ -96,6 +96,28 @@ public:
     virtual void tabBarSelectedItem(CATabBar* tabBar, CATabBarItem* item, unsigned int index) = 0;
     
     virtual void tabBarClickToForbidSelectedItem(CATabBar* tabBar, CATabBarItem* item, unsigned int index){};
+    
+};
+
+class CC_DLL CABadgeView: public CAView
+{
+public:
+    
+    CABadgeView();
+    
+    virtual ~CABadgeView();
+    
+    bool init();
+    
+    void setBadgeText(const std::string& text);
+    
+    virtual void setContentSize(const CCSize& contentSize);
+    
+protected:
+    
+    CAScale9ImageView* m_pBackground;
+    
+    CALabel* m_pTextView;
     
 };
 
@@ -176,9 +198,11 @@ protected:
     CAView* m_pSelectedIndicatorView;
     
     CAVector<CAButton*> m_pButtons;
+    
+    CAVector<CABadgeView*> m_pBadgeViews;
 };
 
 
 NS_CC_END
 
-#endif /* defined(__CrossAppx__CABar__) */
+#endif /* defined(__CrossApp__CABar__) */

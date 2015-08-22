@@ -208,6 +208,17 @@ extern "C"
     }
 }
     
+const char* getAppVersion()
+{
+    JniMethodInfo jmi;
+    if(JniHelper::getStaticMethodInfo(jmi , "org/CrossApp/lib/AndroidNativeTool" , "getAppVersion" , "()Ljava/lang/String;"))
+    {
+        jstring a = (jstring)jmi.env->CallStaticObjectMethod(jmi.classID , jmi.methodID);
+        const char* b = jmi.env->GetStringUTFChars( a , 0 );
+        return b;
+    }
+}
+    
 double* getGPSLocation()
 {
 	JniMethodInfo jmi;
@@ -291,12 +302,12 @@ void updateVersion(const std::string &url
     
 }
     
-void OpenAlbum()
+void OpenAlbum(int type)
 {
 	JniMethodInfo jmi;
-	if(JniHelper::getStaticMethodInfo(jmi , "org/CrossApp/lib/AndroidNativeTool" , "CAImageAlbum" , "()V"))
+	if(JniHelper::getStaticMethodInfo(jmi , "org/CrossApp/lib/AndroidNativeTool" , "CAImageAlbum" , "(I)V"))
 	{
-		jmi.env->CallStaticVoidMethod(jmi.classID , jmi.methodID);
+		jmi.env->CallStaticVoidMethod(jmi.classID , jmi.methodID,type);
 	}
 }
     
@@ -314,12 +325,12 @@ void OpenURL(const std::string &url)
     }
 }
     
-void OpenCamera()
+void OpenCamera(int type)
 {
     JniMethodInfo jmi;
-	if(JniHelper::getStaticMethodInfo(jmi , "org/CrossApp/lib/AndroidNativeTool" , "CAImageCapture" , "()V"))
+	if(JniHelper::getStaticMethodInfo(jmi , "org/CrossApp/lib/AndroidNativeTool" , "CAImageCapture" , "(I)V"))
 	{
-		jmi.env->CallStaticVoidMethod(jmi.classID , jmi.methodID);
+		jmi.env->CallStaticVoidMethod(jmi.classID , jmi.methodID,type);
 	}
 }
     
@@ -351,7 +362,14 @@ static std::vector<CAAddressBookRecord> _addressBookArr;
 void openCamera(CAMediaDelegate* target)
 {
     delegate = target;
-    OpenCamera();
+//    if (allowEdit) {
+//        OpenCamera(0);
+//    }
+//    else
+    {
+        OpenCamera(1);
+    }
+    
 }
     
 void getWifiList(CAWifiDelegate *target)
@@ -363,7 +381,14 @@ void getWifiList(CAWifiDelegate *target)
 void openAlbum(CAMediaDelegate* target)
 {
     delegate = target;
-    OpenAlbum();
+//    if (allowEdit) {
+//        OpenAlbum(0);
+//    }
+//    else
+    {
+        OpenAlbum(1);
+    }
+
 }
     
 vector<CAAddressBookRecord> getAddressBook()
@@ -479,7 +504,7 @@ void ToMainThread::runDelegate()
         if (image->initWithImageFile(_path))
         {
             CAScheduler::unschedule(schedule_selector(ToMainThread::runDelegate), this);
-            delegate->getSelectedImage(image);
+            delegate->getSelectedImage(CAImage::generateMipmapsWithImage(image));
             image->release();
         }
     }

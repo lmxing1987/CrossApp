@@ -50,6 +50,8 @@ public:
 	virtual unsigned int listViewHeightForIndex(CAListView *listView, unsigned int index) = 0;
 
 	virtual CAListViewCell* listViewCellAtIndex(CAListView *listView, const CCSize& cellSize, unsigned int index) = 0;
+    
+    virtual void listViewWillDisplayCellAtIndex(CAListView* table, CAListViewCell* cell, unsigned int index) {};
 };
 
 
@@ -71,6 +73,7 @@ public:
 
 	void reloadViewSizeData();
 
+	void clearData();
 	void reloadData();
 
 	CAListViewCell* dequeueReusableCellWithIdentifier(const char* reuseIdentifier);
@@ -84,6 +87,10 @@ public:
     void setUnSelectAtIndex(unsigned int index);
     
     virtual void setShowsScrollIndicators(bool var);
+    
+    CAListViewCell* cellForRowAtIndex(unsigned int index);
+    
+    const CAVector<CAListViewCell*>& displayingListCell();
     
 	CC_PROPERTY(CAListViewOrientation, m_pListViewOrientation, ListViewOrientation);
 
@@ -124,6 +131,8 @@ protected:
 	void loadCollectionCell();
     
     CAView* dequeueReusableLine();
+    
+    void firstReloadData();
     
 public:
 
@@ -179,8 +188,6 @@ private:
     
     using CAScrollView::getSubviewByTag;
     
-    using CAResponder::setTouchMovedListenHorizontal;
-    
 private:
     
 	CCRect m_rHeaderRect;
@@ -193,9 +200,11 @@ private:
 
     std::vector<CCRect> m_rLineRects;
     
-	std::map<unsigned int, CAListViewCell*> m_pUsedListCells;
+	std::map<unsigned int, CAListViewCell*> m_mpUsedListCells;
 
-	std::map<std::string, CAVector<CAListViewCell*> > m_pFreedListCells;
+    CAVector<CAListViewCell*> m_vpUsedListCells;
+    
+	std::map<std::string, CAVector<CAListViewCell*> > m_mpFreedListCells;
     
     std::map<unsigned int, CAView*> m_pUsedLines;
     
@@ -218,6 +227,8 @@ public:
 
 	virtual bool initWithReuseIdentifier(const std::string& reuseIdentifier);
 
+    CC_SYNTHESIZE_READONLY(CAView*, m_pContentView, ContentView);
+    
     CC_PROPERTY(CAView*, m_pBackgroundView, BackgroundView);
     
     CC_SYNTHESIZE_PASS_BY_REF(std::string, m_sReuseIdentifier, ReuseIdentifier);
@@ -227,7 +238,7 @@ public:
     CC_SYNTHESIZE_IS(bool, m_bControlStateEffect, ControlStateEffect);
     
     CC_SYNTHESIZE_IS(bool, m_bAllowsSelected, AllowsSelected);
-
+    
 protected:
     
     virtual void normalListViewCell();

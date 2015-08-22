@@ -7,8 +7,8 @@
 //
 
 
-#ifndef __CrossAppx__CAAlertView__
-#define __CrossAppx__CAAlertView__
+#ifndef __CrossApp__CAAlertView__
+#define __CrossApp__CAAlertView__
 
 #include <iostream>
 #include "view/CAView.h"
@@ -34,7 +34,7 @@ class CAAlertView;
 #define ALERT_VIEW_WIDTH 540
 #define ALERT_VIEW_MESG_WIDTH 440
 
-typedef void (CAObject::*SEL_CAAlertBtnEvent)(int iButtonIndex);
+typedef void (CAObject::*SEL_CAAlertBtnEvent)(int index);
 #define CAAlertView_selector(_SELECTOR) (SEL_CAAlertBtnEvent)(&_SELECTOR)
 
 class CC_DLL CAAlertView 
@@ -45,8 +45,11 @@ class CC_DLL CAAlertView
 public:
 
 	CAAlertView();
+    
 	virtual ~CAAlertView();
 
+    static bool hideWithDisplayed();
+    
 	static CAAlertView *create();
 
 	static CAAlertView *createWithText(const char* pszTitle, const char* pszAlertMsg, const char* pszBtnText, ...);
@@ -61,6 +64,8 @@ public:
 	
 	void show();
 
+    void hide();
+    
 	//optional
 	void setMessageFontName(std::string &var);
 
@@ -116,9 +121,9 @@ private:
 
 	float m_fAlertViewLineHeight;
 
-	CAView *m_pBackView;
+	CAClippingView *m_pBackView;
 };
 
 NS_CC_END
 
-#endif /* defined(__cocos2dx__CAAlertView__) */
+#endif /* defined(__CrossApp__CAAlertView__) */

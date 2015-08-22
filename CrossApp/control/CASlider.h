@@ -7,8 +7,8 @@
 //
 
 
-#ifndef CrossAppx_CASlider_h
-#define CrossAppx_CASlider_h
+#ifndef CrossApp_CASlider_h
+#define CrossApp_CASlider_h
 
 #include "CAControl.h"
 #include "view/CAScale9ImageView.h"
@@ -43,13 +43,13 @@ public:
 public:
 	CC_SYNTHESIZE_IS_READONLY(bool, m_bTouchClick, TouchClick);
     
-    CC_SYNTHESIZE_READONLY(float, m_value, Value);       // default 0.0.
+    CC_SYNTHESIZE_READONLY(float, m_fValue, Value);       // default 0.0.
     
-    CC_SYNTHESIZE_READONLY(float, m_minValue, MinValue); // default 0.0.
+    CC_SYNTHESIZE_READONLY(float, m_fMinValue, MinValue); // default 0.0.
     
-    CC_SYNTHESIZE_READONLY(float, m_maxValue, MaxValue); // default 1.0.
+    CC_SYNTHESIZE_READONLY(float, m_fMaxValue, MaxValue); // default 1.0.
     
-    CC_SYNTHESIZE_READONLY(float, m_trackHeight, TrackHeight); // default 4.0;
+    CC_SYNTHESIZE_READONLY(float, m_fTrackHeight, TrackHeight); // default 4.0;
     
 	CC_SYNTHESIZE_READONLY(CAImage*, m_pMinTrackTintImage, MinTrackTintImage);
     
@@ -86,5 +86,5 @@ protected:
 
 NS_CC_END
 
-#endif //defined(CrossAppx_CASlider_h)
+#endif //defined(CrossApp_CASlider_h)
 

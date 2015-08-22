@@ -42,6 +42,8 @@ typedef struct _TextViewLineInfo
 
 typedef struct TGlyph_
 {
+	TGlyph_() : index(0), image(0) {}
+	
 	FT_UInt    index;  // glyph index
     FT_Vector  pos;    // glyph origin on the baseline
 	FT_Glyph   image;  // glyph image
@@ -54,7 +56,7 @@ typedef struct FontBufferInfo
 	unsigned char*  pBuffer;  
 	unsigned long  size;
 	int face_index;
-	bool isOpenTypeFont;
+
 } FontBufferInfo;
 
 typedef struct FTLineInfo
@@ -63,6 +65,7 @@ typedef struct FTLineInfo
 	FT_BBox             bbox;       // bounding box containing all of the glyphs in the line
     unsigned int        width;      // width of the line     
     FT_Vector           pen;        // current pen position
+	bool				includeRet;
 } FTLineInfo;
 
 typedef enum
@@ -86,28 +89,28 @@ public:
 	CAFreeTypeFont();
 	virtual ~CAFreeTypeFont();
 
-	CAImage* initWithString(const char* pText, const char* pFontName, int nSize, int inWidth, int inHeight,
-		CATextAlignment hAlignment, CAVerticalTextAlignment vAlignment, bool bWordWrap = true, int iLineSpacing = 0, bool bBold = false, bool bItalics = false, bool bUnderLine = false);
-
-	CAImage* initWithStringEx(const char* pText, const char* pFontName, int nSize, int inWidth, int inHeight, 
-		std::vector<TextViewLineInfo>& linesText, int iLineSpace = 0, bool bWordWrap = true);
+	CAImage* initWithString(const std::string& pText, const std::string& pFontName, int nSize, int inWidth, int inHeight,
+		CATextAlignment hAlignment, CAVerticalTextAlignment vAlignment, bool bWordWrap = true, int iLineSpacing = 0, bool bBold = false, bool bItalics = false, bool bUnderLine = false, std::vector<TextViewLineInfo>* pLinesText = 0);
 
 	static void destroyAllFontBuff();
 protected:
-	bool initFreeTypeFont(const char* pFontName, unsigned long nSize);
+	bool initFreeTypeFont(const std::string& pFontName, unsigned long nSize);
 	void finiFreeTypeFont();
-	unsigned char* loadFont(const char *pFontName, unsigned long *size, int& ttfIndex);
+	unsigned char* loadFont(const std::string& pFontName, unsigned long *size, int& ttfIndex);
 	unsigned char* getBitmap(ETextAlign eAlignMask, int* outWidth, int* outHeight);
 	int getFontHeight();
 	int getStringWidth(const std::string& text, bool bBold = false, bool bItalics = false);
     int cutStringByWidth(const std::string& text, int iLimitWidth, int& cutWidth);
 	int getStringHeight(const std::string& text, int iLimitWidth, int iLineSpace, bool bWordWrap);
 	void destroyAllLines();
+	void destroyFontGlyph(std::vector<TGlyph>& v);
+	void destroyAllLineFontGlyph();
 
-	FT_Error initGlyphs(const char* text);
+	FT_Error initGlyphs(const std::string& text);
 	FT_Error initGlyphsLine(const std::string& line);
 	FT_Error initWordGlyphs(std::vector<TGlyph>& glyphs, const std::string& text, FT_Vector& pen);
-	FT_Error initTextView(const char* pText, std::vector<TextViewLineInfo>& linesText);
+	
+	void initTextView(std::vector<TextViewLineInfo>& linesText);
 	
 	void compute_bbox(std::vector<TGlyph>& glyphs, FT_BBox  *abbox);
 	void compute_bbox2(TGlyph& glyph, FT_BBox& bbox);
@@ -145,7 +148,6 @@ protected:
 	bool m_bBold;
 	bool m_bItalics;
 	bool m_bUnderLine;
-	bool m_bOpenTypeFont;
 };
 
 NS_CC_END

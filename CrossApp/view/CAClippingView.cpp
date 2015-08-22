@@ -24,8 +24,9 @@ static void setProgram(CAView *n, CAGLProgram *p)
 
 CAClippingView::CAClippingView()
 : m_pStencil(NULL)
-, m_fAlphaThreshold(0.0f)
+, m_fAlphaThreshold(1.0f)
 , m_bInverted(false)
+, m_bClippingEnabled(true)
 {}
 
 CAClippingView::~CAClippingView()
@@ -72,7 +73,7 @@ bool CAClippingView::init(CAView *pStencil)
 {
     this->setStencil(pStencil);
     
-    m_fAlphaThreshold = 1;
+    m_fAlphaThreshold = 1.0f;
     m_bInverted = false;
 
     static bool once = true;
@@ -81,7 +82,7 @@ bool CAClippingView::init(CAView *pStencil)
         glGetIntegerv(GL_STENCIL_BITS, &g_sStencilBits);
         if (g_sStencilBits <= 0)
         {
-            CCLOG("Stencil buffer is not enabled.");
+            //"Stencil buffer is not enabled."
         }
         once = false;
     }
@@ -116,7 +117,7 @@ void CAClippingView::onExit()
 void CAClippingView::visit()
 {
     // if stencil buffer disabled
-    if (g_sStencilBits < 1)
+    if (!m_bClippingEnabled || g_sStencilBits < 1)
     {
         // draw everything, as if there where no stencil
         CAView::visit();
@@ -366,6 +367,15 @@ bool CAClippingView::isInverted() const
 void CAClippingView::setInverted(bool bInverted)
 {
     m_bInverted = bInverted;
+}
+
+bool CAClippingView::isClippingEnabled() const
+{
+    return m_bClippingEnabled;
+}
+void CAClippingView::setClippingEnabled(bool bClippingEnabled)
+{
+    m_bClippingEnabled = bClippingEnabled;
 }
 
 NS_CC_END

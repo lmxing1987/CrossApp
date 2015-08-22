@@ -51,6 +51,8 @@ public:
 	SEL_CAViewAnimation2        willStartSel2;
 	SEL_CAViewAnimation2        didStopSel2;
 
+    CC_SYNTHESIZE_IS(bool, bAlreadyRunning, AlreadyRunning);
+    
 	CAViewAnimationModule()
 		: willStartTarget(NULL)
 		, didStopTarget(NULL)
@@ -66,6 +68,7 @@ public:
         , repeatCount(1.0f)
         , repeatAutoreverses(false)
 		, curve(CAViewAnimationCurveLinear)
+        , bAlreadyRunning(false)
 	{
 
 	}
@@ -101,6 +104,10 @@ public:
     
     static void setAnimationDidStopSelector(CAObject* target, SEL_CAViewAnimation2 selector);
     
+    static void removeAnimations(const std::string& animationID);
+    
+    static void removeAnimationsWithView(CAView* view);
+
     static void setAnimationsEnabled(bool enabled);
     
     static bool areAnimationsEnabled();
@@ -116,10 +123,8 @@ protected:
     CAViewAnimation();
     
     virtual ~CAViewAnimation();
-    
-    void setFrameOrgin(const CCPoint& point, CAView* view);
-    
-    void setCenterOrgin(const CCPoint& point, CAView* view);
+
+    void setPoint(const CCPoint& point, CAView* view);
     
     void setContentSize(const CCSize& size, CAView* view);
     
@@ -144,7 +149,7 @@ protected:
     void setAlpha(float alpha, CAView* view);
     
     void setImageRect(const CCRect& imageRect, CAView* view);
-    
+        
     void setFlipX(bool flipX, CAView* view);
     
     void setFlipY(bool flipY, CAView* view);

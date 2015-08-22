@@ -73,15 +73,13 @@ bool CAImageView::init(void)
 
 bool CAImageView::initWithImage(CAImage* image)
 {
-	this->setShaderProgram(CAShaderCache::sharedShaderCache()->programForKey(kCCShader_PositionTextureColor));
-
 	CCRect rect = CCRectZero;
 	if (image)
 	{
 		rect.size = image->getContentSize();
 	}
 	this->setImage(image);
-	this->setImageRect(rect, false, rect.size);
+	this->setImageRect(rect);
 
     return true;
 }
@@ -92,6 +90,7 @@ CAImageView::CAImageView(void)
 ,m_bAnimating(false)
 ,m_iAnimationRepeatCount(0)
 ,m_fAnimationDuration(1/30.0f)
+,m_fAnimationRunTime(0)
 {
     
 }
@@ -107,8 +106,8 @@ void CAImageView::updateByImageViewScaleType()
     CC_RETURN_IF(m_bUpdateByImageViewScaleType);
     m_bUpdateByImageViewScaleType = true;
     
-    CCSize viewSize = m_obContentSize;
-    CCRect rect = m_obRect;
+    CCSize viewSize = CCSize(m_obContentSize);
+    CCRect rect = CCRect(m_obRect);
     CCSize imageSize = m_obRect.size;
     float viewRatio = viewSize.width / viewSize.height;
     float imageRatio = imageSize.width / imageSize.height;
@@ -155,19 +154,34 @@ void CAImageView::updateByImageViewScaleType()
             if (imageRatio > viewRatio)
             {
                 m_fTop = (viewSize.height - viewSize.width / imageRatio) / 2;
-                m_fBottom = m_fTop + viewSize.width / imageRatio;
+                m_fBottom = m_fTop + viewSize.width / imageRatio - 0.5f;
             }
             else if (imageRatio < viewRatio)
             {
                 m_fLeft = (viewSize.width - viewSize.height * imageRatio) / 2;
-                m_fRight = m_fLeft + viewSize.height * imageRatio;
+                m_fRight = m_fLeft + viewSize.height * imageRatio - 0.5f;
             }
         }
             break;
         default:
             break;
     }
-    this->setImageRect(rect, false, viewSize);
+    this->setImageRect(rect);
+    if (!viewSize.equals(m_obContentSize))
+    {
+        if (m_bFrame)
+        {
+            CCRect rect = this->getFrame();
+            rect.size = viewSize;
+            this->setFrame(rect);
+        }
+        else
+        {
+            CCRect rect = this->getCenter();
+            rect.size = viewSize;
+            this->setCenter(rect);
+        }
+    }
     m_bUpdateByImageViewScaleType = false;
 }
 
@@ -203,9 +217,9 @@ void CAImageView::setContentSize(const CCSize & size)
 void CAImageView::setImage(CAImage* image)
 {
     CAView::setImage(image);
-    CCRect rect = CCRectZero;
     if (image)
     {
+        CCRect rect = CCRectZero;
         rect.size = image->getContentSize();
         this->setVertexRect(rect);
         this->updateByImageViewScaleType();
@@ -224,6 +238,18 @@ void CAImageView::updateImageRect()
     m_sQuad.br.vertices = vertex3( m_fRight,    m_fTop, m_fVertexZ);
     m_sQuad.tl.vertices = vertex3(  m_fLeft, m_fBottom, m_fVertexZ);
     m_sQuad.tr.vertices = vertex3( m_fRight, m_fBottom, m_fVertexZ);
+}
+
+void CAImageView::setImageViewScaleType(const CAImageViewScaleType &var)
+{
+    CC_RETURN_IF(m_eImageViewScaleType == var);
+    m_eImageViewScaleType = var;
+    this->updateByImageViewScaleType();
+}
+
+const CAImageViewScaleType& CAImageView::getImageViewScaleType()
+{
+    return m_eImageViewScaleType;
 }
 
 void CAImageView::startAnimating()

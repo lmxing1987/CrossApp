@@ -6,8 +6,8 @@
 //  Copyright (c) 2014年 http://9miao.com All rights reserved.
 //
 
-#ifndef __CrossAppx__CAViewController__
-#define __CrossAppx__CAViewController__
+#ifndef __CrossApp__CAViewController__
+#define __CrossApp__CAViewController__
 
 #include <iostream>
 #include "control/CABar.h"
@@ -70,6 +70,8 @@ public:
     
     virtual CAView* getView();
     
+    virtual CAResponder* nextResponder();
+
 public:
     
     virtual bool ccTouchBegan(CATouch *pTouch, CAEvent *pEvent);
@@ -80,8 +82,6 @@ public:
     
     virtual void ccTouchCancelled(CATouch *pTouch, CAEvent *pEvent);
     
-    virtual CAResponder* nextResponder();
-    
     friend class CATabBarController;
     
     friend class CANavigationController;
@@ -90,23 +90,19 @@ public:
     
     friend class CAWindow;
     
-protected:
+    virtual void viewDidLoad() {};
     
-    virtual void viewDidLoad(){};
+    virtual void viewDidUnload() {};
     
-    virtual void viewDidUnload(){};
+    virtual void viewDidAppear() {};
     
-    virtual void viewDidAppear(){};
+    virtual void viewDidDisappear() {};
     
-    virtual void viewDidDisappear(){};
+    virtual void reshapeViewRectDidFinish() {};
     
-    virtual void reshapeViewRectDidFinish(){};
-    
-    virtual void keyBackClicked() {}
+    virtual void keyBackClicked() {};
     
     virtual void keyMenuClicked() {};
-    
-protected:
     
     virtual void addViewFromSuperview(CAView* node);
     
@@ -151,8 +147,11 @@ public:
     
     CAViewController* popViewControllerAnimated(bool animated);
     
-    // sprhawk@163.com: 2015-03-08
     void popToRootViewControllerAnimated(bool animated);
+    
+    CAViewController* popFirstViewController();
+ 
+    CAViewController* popViewControllerAtIndex(int index);
     
     CAViewController* getViewControllerAtIndex(int index);
     
@@ -178,6 +177,14 @@ public:
 
     CC_PROPERTY_PASS_BY_REF(CAColor4B, m_sNavigationBarButtonColor, NavigationBarButtonColor);
     
+    virtual bool isReachBoundaryLeft();
+    
+    virtual bool isReachBoundaryRight() {return true;}
+    
+    virtual bool isReachBoundaryUp() {return true;}
+    
+    virtual bool isReachBoundaryDown() {return true;}
+    
     virtual bool ccTouchBegan(CATouch *pTouch, CAEvent *pEvent);
     
     virtual void ccTouchMoved(CATouch *pTouch, CAEvent *pEvent);
@@ -185,7 +192,7 @@ public:
     virtual void ccTouchEnded(CATouch *pTouch, CAEvent *pEvent);
     
     virtual void ccTouchCancelled(CATouch *pTouch, CAEvent *pEvent);
-    
+
 protected:
     
     virtual void viewDidLoad();
@@ -212,34 +219,36 @@ protected:
     
     void popViewControllerFinish();
     
-    
     void popToRootViewControllerFinish();
     
     void homingViewControllerFinish();
     
     void navigationPopViewController(CANavigationBar* navigationBar, bool animated);
     
-    
-    void updateNavigationBarHidden(int index);
-    
+    void navigationBarHiddenAnimation(float delay, float now, float total);
+
     void update(float dt);
     
-    void scheduleUpdate();
+    CCPoint getNavigationBarOpenPoint();
     
-    void unScheduleUpdate();
+    CCPoint getNavigationBarTakeBackPoint();
+    
+    CCPoint getNavigationBarNowPoint(CAViewController* viewController);
     
 protected:
 
-    CAVector<CAViewController*> m_pViewControllers;
+    float m_fProgress;
     
-    CAVector<CANavigationBar*> m_pNavigationBars;
+    CADeque<CAViewController*> m_pViewControllers;
     
-    CAVector<CAView*> m_pContainers;
+    CADeque<CANavigationBar*> m_pNavigationBars;
+    
+    CADeque<CAView*> m_pContainers;
 
-    CAVector<CAView*> m_pSecondContainers;
+    CADeque<CAView*> m_pSecondContainers;
     
     bool m_bPopViewController;
-    
+
     CCSize m_tNavigationBarSize;
 };
 
@@ -271,7 +280,7 @@ public:
     
     virtual void setTabBarHidden(bool hidden, bool animated);
     
-    CC_PROPERTY_IS(bool, m_bscrollEnabled, ScrollEnabled);
+    CC_PROPERTY_IS(bool, m_bScrollEnabled, ScrollEnabled);
     
     CC_SYNTHESIZE_IS_READONLY(bool, m_bTabBarHidden, TabBarHidden);
     
@@ -296,7 +305,7 @@ public:
     void updateItem(CAViewController* viewController);
     
     void showTabBarSelectedIndicator();
-    
+ 
 protected:
     
     virtual void viewDidLoad();
@@ -321,11 +330,17 @@ protected:
     
     void update(float dt);
     
-    void scheduleUpdate();
+    void tabBarHiddenAnimation(float delay, float now, float total);
     
-    void unScheduleUpdate();
+    CCPoint getTabBarOpenPoint();
+    
+    CCPoint getTabBarTakeBackPoint();
+    
+    CCPoint getTabBarNowPoint();
     
 protected:
+    
+    float m_fProgress;
     
     bool m_bShowTabBarSelectedIndicator;
     
@@ -344,4 +359,4 @@ protected:
 
 NS_CC_END
 
-#endif /* defined(__CrossAppx__CAViewController__) */
+#endif /* defined(__CrossApp__CAViewController__) */

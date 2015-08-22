@@ -124,7 +124,8 @@ typedef enum
 
 namespace CADevice
 {
-   
+    const char* getAppVersion();
+    
     void openCamera(CAMediaDelegate* target);
     
     void openAlbum(CAMediaDelegate* target);

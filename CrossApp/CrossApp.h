@@ -21,6 +21,10 @@
 #include "ccMacros.h"
 #include "ccTypes.h"
 
+// animation
+#include "animation/CAAnimation.h"
+#include "animation/CAViewAnimation.h"
+
 //basics
 #include "basics/CAApplication.h"
 #include "basics/CAAutoreleasePool.h"
@@ -43,7 +47,6 @@
 #include "control/CASwitch.h"
 #include "control/CASlider.h"
 #include "control/CASegmentedControl.h"
-#include "control/CATextField.h"
 #include "control/CAPageControl.h"
 #include "control/CAStepper.h"
 
@@ -65,14 +68,15 @@
 // images
 #include "images/CAImage.h"
 #include "images/CAImageCache.h"
+#include "images/CAGif.h"
+#include "images/CAFlash.h"
 
-// animation
-#include "animation/CAViewAnimation.h"
 
 //view
 #include "view/CAView.h"
 #include "view/CAWindow.h"
 #include "view/CAImageView.h"
+#include "view/CAGifView.h"
 #include "view/CAScale9ImageView.h"
 #include "view/CALabel.h"
 #include "view/CABatchView.h"
@@ -88,10 +92,13 @@
 #include "view/CADatePickerView.h"
 #include "view/CAActivityIndicatorView.h"
 #include "view/CAPullToRefreshView.h"
+#include "view/CATextField.h"
 #include "view/CATextView.h"
 #include "view/CAWebView.h"
 #include "view/CADrawingPrimitives.h"
 #include "view/CADrawView.h"
+#include "view/CAFlashView.h"
+#include "view/CATextEditHelper.h"
 
 // cocoa
 #include "cocoa/CCDictionary.h"
@@ -178,15 +185,6 @@
 	#include "platform/winrt/CCAccelerometer.h"
 	#include "platform/winrt/CCPrecompiledShaders.h"
 #endif // CC_TARGET_PLATFORM == CC_PLATFORM_WINRT
-
-#if (CC_TARGET_PLATFORM == CC_PLATFORM_WP8)
-	#include "platform/winrt/CCApplication.h"
-	#include "platform/wp8/CCEGLView.h"
-	#include "platform/winrt/CCGL.h"
-	#include "platform/winrt/CCStdC.h"
-	#include "platform/winrt/CCAccelerometer.h"
-	#include "platform/winrt/CCPrecompiledShaders.h"
-#endif // CC_TARGET_PLATFORM == CC_PLATFORM_WP8
 
 #if (CC_TARGET_PLATFORM == CC_PLATFORM_MAC)
 	#include "platform/mac/CCAccelerometer.h"

@@ -3,7 +3,7 @@
 //  CrossApp
 //
 //  Created by dai xinping on 14-8-7.
-//  Copyright (c) 2014年 cocos2d-x. All rights reserved.
+//  Copyright (c) 2014年 CrossApp All rights reserved.
 //
 
 #ifndef __CrossApp__CAPageControl__
@@ -43,6 +43,10 @@ public:
     virtual void onExit();
     
     virtual void visit();
+    
+    void addTarget(CAObject* target, SEL_CAControl selector);
+
+    void removeTarget(CAObject* target, SEL_CAControl selector);
     
     CC_SYNTHESIZE(int, m_numberOfPages, NumberOfPages); // default is 0
     CC_SYNTHESIZE(int, m_currentPage, CurrentPage);     // default is 0. value pinned to 0..numberOfPages-1

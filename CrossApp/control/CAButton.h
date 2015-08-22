@@ -65,6 +65,16 @@ public:
     
     void setTitleFontName(const std::string& var);
     
+    void setImageOffset(const CCSize& offset);
+    
+    void setImageSize(const CCSize& size);
+    
+    void setTitleOffset(const CCSize& offset);
+    
+    void setTitleLabelSize(const CCSize& size);
+    
+    void setTitleFontSize(float fontSize);
+    
     virtual void setControlState(const CAControlState& var);
     
     using CAControl::addTarget;
@@ -115,6 +125,15 @@ protected:
     
     CAView* m_pBackGroundView[CAControlStateAll];
     
+    float m_fTitleFontSize;
+    
+    CCSize m_pTitleLabelSize;
+    
+    CCSize m_pImageSize;
+    
+    CCSize m_pTitleOffset;
+    
+    CCSize m_pImageOffset;
 protected:
     
     void updateWithPreferredSize();
@@ -123,12 +142,14 @@ protected:
     
     void setTouchMovedOutSide(const CCPoint& point);
     
-    void setTouchUpSide(const CCPoint& point);
+    void setTouchUpOutSide(const CCPoint& point);
     
     void setTouchUpInSide(const CCPoint& point);
     
     bool setTouchBegin(const CCPoint& point);
 
+    void setTouchLongPress(float dt);
+    
     void setContentSize(const CCSize & var);
 
     void setBackGroundViewSquareRect();

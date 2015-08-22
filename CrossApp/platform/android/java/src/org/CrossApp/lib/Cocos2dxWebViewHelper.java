@@ -53,10 +53,14 @@ public class Cocos2dxWebViewHelper {
     }
     
     private static native void onSetByteArrayBuffer(byte[] buf, int len);
+    public static native void didLoadHtmlSource(String htmlSrc);
+    public static Boolean s_bWaitGetHemlSource = false;
+    public static native void pause();
+    public static native void resume();
 
     @SuppressWarnings("unused")
-    public static int createWebView() {
-        final int index = viewTag;
+    public static void createWebView(final int index) {
+        pause();
         cocos2dxActivity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -70,6 +74,13 @@ public class Cocos2dxWebViewHelper {
                 webViews.put(index, webView);
             }
         });
+        resume();
+    }
+    
+    @SuppressWarnings("unused")
+    public static int createWebView() {
+        final int index = viewTag;
+        createWebView(index);
         return viewTag++;
     }
 
@@ -287,16 +298,25 @@ public class Cocos2dxWebViewHelper {
 
     @SuppressWarnings("unused")
     public static void evaluateJS(final int index, final String js) {
-        cocos2dxActivity.runOnUiThread(new Runnable() {
+    	s_bWaitGetHemlSource = false;
+    	cocos2dxActivity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
                 Cocos2dxWebView webView = webViews.get(index);
                 if (webView != null) {
-                    webView.loadUrl("javascript:" + js);
+                	s_bWaitGetHemlSource = true;
+                	webView.loadUrl("javascript:"+js);
                 }
             }
         });
-    }
+    	
+        try {
+        	while (s_bWaitGetHemlSource) {
+            	Thread.sleep(100);
+            }
+        } catch (Exception e) {
+        }
+	}
 
     @SuppressWarnings("unused")
     public static void setScalesPageToFit(final int index, final boolean scalesPageToFit) {
@@ -309,5 +329,34 @@ public class Cocos2dxWebViewHelper {
                 }
             }
         });
+    }
+    
+    public static String[] getAllWebviews() {
+
+    	String [] strs = new String[1 + webViews.size() * 2];
+    	
+    	int index = 0;
+    	strs[index++] = String.valueOf(viewTag);
+    	
+    	for (int i=0; i<webViews.size(); i++) {
+    		Cocos2dxWebView webView = webViews.get(webViews.keyAt(i));
+            if (webView != null) {
+            	strs[index++] = String.valueOf(webView.getViewTag());
+            	strs[index++] = webView.getUrl();
+            }
+    	}
+    	return strs;
+    }
+    
+    public static void setAllWebviews(String[] strs) {
+    	int cnt = (strs.length-1) / 2;
+    	
+    	viewTag = Integer.parseInt(strs[0]);
+    	
+    	for (int i=0; i<cnt; i++) {
+    		int index = Integer.parseInt(strs[2*i+1]);
+    		createWebView(index);
+    		loadUrl(index, strs[2*i+2]);
+    	}
     }
 }
